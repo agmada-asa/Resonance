@@ -1,9 +1,14 @@
+import json
+from random import seed
+
 import numpy as np
+from sklearn.model_selection import train_test_split
 import soundfile as sf
 from pathlib import Path
 
-SAMPLE_RATE = 44100 # Hz
-DURATION = 2  # seconds
+from experiments.actions import apply_action
+from experiments.audio_to_spectogram import audio_to_spectrogram
+from experiments.config import DURATION, HOP_LENGTH, N_FFT, N_MELS, SAMPLE_RATE
 
 # SINE WAVES
 def generate_sin_wave(frequency, amplitude=0.5):
@@ -79,5 +84,129 @@ def generate_data():
                 create_audio_file(filename, waveform_type, frequency, amplitude)
                 print(f"Generated {filename}")
 
+def generate_training_data(seed=42):
+    input_spectrograms = []
+    output_spectrograms = []
+    action_vectors = []
+    metadata = []  # To store metadata about the generated samples (e.g., waveform type, frequency, amplitude, action applied)
+    index = 0
+
+    rng = np.random.default_rng(seed)
+
+    for waveform_type in ['sine', 'square', 'sawtooth']:
+        for _ in range(1000):  # Generate 1000 samples for each waveform type
+            frequency = rng.uniform(20, 20000)  # Random frequency between 20Hz and 20kHz
+            amplitude = rng.uniform(0.1, 1.0)  # Random amplitude between 0.1 and 1.0
+
+            if waveform_type == 'sine':
+                audio = generate_sin_wave(frequency, amplitude)
+                spectogram = audio_to_spectrogram(audio)
+            elif waveform_type == 'square':
+                audio = generate_square_wave(frequency, amplitude)
+                spectogram = audio_to_spectrogram(audio)
+            elif waveform_type == 'sawtooth':
+                audio = generate_sawtooth_wave(frequency, amplitude)
+                spectogram = audio_to_spectrogram(audio)
+
+            # Choose a random action and parameter for the audio transformation
+            action = rng.choice(['no_action', 'gain', 'pitch_change', 'low_pass', 'high_pass'])
+            if action == 'gain':
+                parameter = rng.uniform(-12, 12)  # Gain in dB
+            elif action == 'pitch_change':
+                parameter = rng.uniform(-12, 12)  # Pitch change in semitones
+            elif action in ['low_pass', 'high_pass']:
+                parameter = rng.uniform(20, 20000)  # Cutoff frequency in Hz
+            else:
+                parameter = None  # No parameter needed for 'no_action'
+            
+            # Apply the action to the audio and get the action vector and the modified audio spectrogram
+            modified_audio, action_vector = apply_action(audio, action, parameter)
+            modified_spectrogram = audio_to_spectrogram(modified_audio)
+
+            # Append the input spectrogram, output spectrogram, action vector, and metadata to the respective lists
+            input_spectrograms.append(spectogram)
+            output_spectrograms.append(modified_spectrogram)
+            action_vectors.append(action_vector)
+            metadata.append({
+                'id': index,
+                'waveform_type': waveform_type,
+                'frequency': frequency,
+                'amplitude': amplitude,
+                'action': action,
+                'parameter': parameter,
+                'sample_rate': SAMPLE_RATE,
+                'duration': DURATION,
+                'n_fft': N_FFT,
+                'hop_length': HOP_LENGTH,
+                'n_mels': N_MELS,
+                'seed': seed
+            })
+
+            index += 1
+
+            print(f"Data generation progress: {((index / (3 * 1000)) * 100):.2f}%")
+
+    # Convert lists to numpy arrays
+    input_spectrograms = np.array(input_spectrograms)
+    output_spectrograms = np.array(output_spectrograms)
+    action_vectors = np.array(action_vectors)
+
+    print(f"\nGenerated {len(input_spectrograms)} samples. Splitting into train/val/test sets...")
+
+    # Split the data into train / val / test sets (e.g., 80% train, 10% val, 10% test)
+    train, other = train_test_split(list(zip(input_spectrograms, output_spectrograms, action_vectors, metadata)), test_size=0.2, random_state=42)
+    val, test = train_test_split(other, test_size=0.5, random_state=42)
+
+    train_inputs, train_outputs, train_actions, train_metadata = map(np.array, zip(*train))
+    val_inputs, val_outputs, val_actions, val_metadata = map(np.array, zip(*val))
+    test_inputs, test_outputs, test_actions, test_metadata = map(np.array, zip(*test))
+
+    output_dir = Path("data/synthetic/v001")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save the datasets and metadata to disk using np.savez
+    print(f"Saving datasets to {output_dir}...")
+
+    np.savez_compressed(
+        output_dir / "train.npz",
+        input_spectrograms=train_inputs.astype(np.float32),
+        target_spectrograms=train_outputs.astype(np.float32),
+        action_vectors=train_actions.astype(np.float32),
+    )
+
+    np.savez_compressed(
+        output_dir / "val.npz",
+        input_spectrograms=val_inputs.astype(np.float32),
+        target_spectrograms=val_outputs.astype(np.float32),
+        action_vectors=val_actions.astype(np.float32),
+    )
+
+    np.savez_compressed(
+        output_dir / "test.npz",
+        input_spectrograms=test_inputs.astype(np.float32),
+        target_spectrograms=test_outputs.astype(np.float32),
+        action_vectors=test_actions.astype(np.float32),
+    )
+
+    print(f"Datasets saved successfully in {output_dir}.")
+
+    print(f"Saving metadata to JSONL files in {output_dir}...")
+
+    # Write metadata to a JSONL file
+    with open(output_dir / "metadata_train.jsonl", "w") as f:
+        for entry in train_metadata: 
+            f.write(json.dumps(entry) + "\n")
+
+    with open(output_dir / "metadata_val.jsonl", "w") as f:
+        for entry in val_metadata: 
+            f.write(json.dumps(entry) + "\n")
+
+    with open(output_dir / "metadata_test.jsonl", "w") as f:
+        for entry in test_metadata: 
+            f.write(json.dumps(entry) + "\n")
+
+    print(f"Metadata saved successfully in {output_dir}.")
+    print(f"Data generation completed. Total samples generated: {len(input_spectrograms)}")
+
 if __name__ == "__main__":
-    generate_data()
+    generate_training_data()
