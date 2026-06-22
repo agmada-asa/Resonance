@@ -1,5 +1,5 @@
 from scipy.signal import butter, sosfilt
-from experiments.generate_synthetic_audio import SAMPLE_RATE
+from experiments.config import SAMPLE_RATE
 import librosa
 import numpy as np
 
