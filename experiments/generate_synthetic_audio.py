@@ -161,7 +161,7 @@ def generate_training_data(seed=42):
     val_inputs, val_outputs, val_actions, val_metadata = map(np.array, zip(*val))
     test_inputs, test_outputs, test_actions, test_metadata = map(np.array, zip(*test))
 
-    output_dir = Path("data/synthetic/v001")
+    output_dir = Path("../data/synthetic/v001")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Save the datasets and metadata to disk using np.savez
