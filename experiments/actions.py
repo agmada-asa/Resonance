@@ -1,6 +1,54 @@
-from scipy.signal import butter, lfilter
-from experiments.generate_synthetic_audio import SAMPLE_RATE, generate_sin_wave
+from scipy.signal import butter, sosfilt
+from experiments.generate_synthetic_audio import SAMPLE_RATE
 import librosa
+import numpy as np
+
+"""
+Representation vector shape for actions:
+Use one hot encoding for the type of action (no action, gain, pitch change, low pass filter, high pass filter) and then additional parameters for each action. [gain_normalized, semitones_normalized, cutoff_frequency_normalized]:
+- No Action: [1, 0, 0, 0, 0, 0, 0, 0]
+- Gain: [0, 1, 0, 0, 0, gain_db_normalized, 0, 0]
+- Pitch Change: [0, 0, 1, 0, 0, 0, semitones_normalized, 0]
+- Low Pass Filter: [0, 0, 0, 1, 0, 0, 0, cutoff_frequency_normalized]
+- High Pass Filter: [0, 0, 0, 0, 1, 0, 0, cutoff_frequency_normalized]
+"""
+
+def apply_action(audio, action, parameter):
+    """
+    Apply the specified action to the audio data.
+    :param audio: Numpy array containing audio samples
+    :param action: String specifying the type of action ('no_action', 'gain', 'pitch_change', 'low_pass', 'high_pass')
+    :param parameter: Parameter for the action (e.g., gain in dB, semitones for pitch change, cutoff frequency for filters)
+    :return: Tuple containing the modified audio samples and the action vector
+    """
+    if action == 'no_action':
+        return audio, [1, 0, 0, 0, 0, 0, 0, 0]
+    elif action == 'gain':
+        # Normalize gain parameter to a range of -1 to 1 for representation vector
+        db = min(12, max(-12, parameter))  # Clamp gain to [-12 dB, 12 dB]
+        normalized_parameter = (db + 12) / 24 * 2 - 1  # Normalize to [-1, 1]
+
+        return gain(audio, db), [0, 1, 0, 0, 0, normalized_parameter, 0, 0]
+    elif action == 'pitch_change':
+        # Normalize semitones parameter to a range of -1 to 1 for representation vector
+        semitones = min(12, max(-12, parameter))  # Clamp semitones to [-12, 12]
+        normalized_parameter = (semitones + 12) / 24 * 2 - 1  # Normalize to [-1, 1]
+        
+        return change_pitch(audio, semitones), [0, 0, 1, 0, 0, 0, normalized_parameter, 0]
+    elif action == 'low_pass':
+        # Normalize cutoff frequency parameter to a range of 0 to 1 for representation vector
+        log_cutoff = np.log10(parameter)
+        normalized_parameter = (log_cutoff - np.log10(20)) / (np.log10(20000) - np.log10(20))  # Normalize to [0, 1]
+
+        return low_pass(audio, parameter), [0, 0, 0, 1, 0, 0, 0, normalized_parameter]
+    elif action == 'high_pass':
+        # Normalize cutoff frequency parameter to a range of 0 to 1 for representation vector
+        log_cutoff = np.log10(parameter)
+        normalized_parameter = (log_cutoff - np.log10(20)) / (np.log10(20000) - np.log10(20))  # Normalize to [0, 1]
+
+        return high_pass(audio, parameter), [0, 0, 0, 0, 1, 0, 0, normalized_parameter]
+    else:
+        raise ValueError("Unsupported action type. Use 'no_action', 'gain', 'pitch_change', 'low_pass', or 'high_pass'.")
 
 def gain(audio, gain_db):
     """
@@ -19,14 +67,22 @@ def change_pitch(audio, semitones):
     :param semitones: Number of semitones to shift the pitch (positive for higher pitch, negative for lower pitch)
     :return: Numpy array containing the modified audio samples
     """
-    return librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=semitones)
+    return librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=semitones, scale=True) # scale=True ensures that the duration and volume of the audio remains the same after pitch shifting
 
 def low_pass(audio, cutoff):
-    x = butter(N=5, Wn=cutoff, fs=SAMPLE_RATE, btype="low", analog=False)
-    y = lfilter(x[0], x[1], audio)
-    return y
+    nyquist = 0.5 * SAMPLE_RATE
+
+    if not 20 <= cutoff <= nyquist:
+        raise ValueError("Cutoff frequency is out of bounds.")
+
+    sos = butter(N=5, Wn=cutoff, fs=SAMPLE_RATE, btype='low', analog=False, output='sos')
+    return sosfilt(sos, audio)
 
 def high_pass(audio, cutoff):
-    x = butter(N=5, Wn=cutoff, fs=SAMPLE_RATE, btype="high", analog=False)
-    y = lfilter(x[0], x[1], audio)
-    return y
+    nyquist = 0.5 * SAMPLE_RATE
+
+    if not 20 <= cutoff <= nyquist:
+        raise ValueError("Cutoff frequency is out of bounds.")
+
+    sos = butter(N=5, Wn=cutoff, fs=SAMPLE_RATE, btype='high', analog=False, output='sos')
+    return sosfilt(sos, audio)
