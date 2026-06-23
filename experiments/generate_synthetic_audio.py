@@ -1,14 +1,15 @@
 import json
-from random import seed
-
-import numpy as np
-from sklearn.model_selection import train_test_split
-import soundfile as sf
 from pathlib import Path
 
+import numpy as np
+import soundfile as sf
+from sklearn.model_selection import train_test_split
+
 from experiments.actions import apply_action
-from experiments.audio_to_spectogram import audio_to_spectrogram
-from experiments.config import DURATION, HOP_LENGTH, N_FFT, N_MELS, SAMPLE_RATE
+from experiments.audio_to_spectogram import audio_to_cqt
+from experiments.config import BINS_PER_OCTAVE, CQT_DB_FLOOR, FMIN, HOP_LENGTH, N_BINS, N_FFT, N_MELS, SAMPLE_RATE, DURATION
+
+ROOT = Path(__file__).resolve().parents[1]
 
 # SINE WAVES
 def generate_sin_wave(frequency, amplitude=0.5):
@@ -60,6 +61,27 @@ def create_audio_file(filepath, waveform_type, frequency, amplitude=0.5):
         raise ValueError("Unsupported waveform type. Use 'sine', 'square', or 'sawtooth'.")
 
 
+def cqt_max_frequency():
+    return FMIN * 2 ** ((N_BINS - 1) / BINS_PER_OCTAVE)
+
+
+def sample_frequency_for_action(rng, action, parameter):
+    min_frequency = FMIN
+    max_frequency = min(cqt_max_frequency(), SAMPLE_RATE / 2)
+
+    if action == 'pitch_change':
+        pitch_factor = 2 ** (parameter / 12)
+        min_frequency = max(min_frequency, FMIN / pitch_factor)
+        max_frequency = min(max_frequency, cqt_max_frequency() / pitch_factor, (SAMPLE_RATE / 2) / pitch_factor)
+
+    if min_frequency >= max_frequency:
+        raise ValueError(
+            f"No valid frequency range for action={action}, parameter={parameter}."
+        )
+
+    return rng.uniform(min_frequency, max_frequency)
+
+
 def generate_data():
     """
     Generate synthetic audio data for training a model
@@ -95,18 +117,7 @@ def generate_training_data(seed=42):
 
     for waveform_type in ['sine', 'square', 'sawtooth']:
         for _ in range(1000):  # Generate 1000 samples for each waveform type
-            frequency = rng.uniform(20, 20000)  # Random frequency between 20Hz and 20kHz
             amplitude = rng.uniform(0.1, 1.0)  # Random amplitude between 0.1 and 1.0
-
-            if waveform_type == 'sine':
-                audio = generate_sin_wave(frequency, amplitude)
-                spectogram = audio_to_spectrogram(audio)
-            elif waveform_type == 'square':
-                audio = generate_square_wave(frequency, amplitude)
-                spectogram = audio_to_spectrogram(audio)
-            elif waveform_type == 'sawtooth':
-                audio = generate_sawtooth_wave(frequency, amplitude)
-                spectogram = audio_to_spectrogram(audio)
 
             # Choose a random action and parameter for the audio transformation
             action = rng.choice(['no_action', 'gain', 'pitch_change', 'low_pass', 'high_pass'])
@@ -118,10 +129,22 @@ def generate_training_data(seed=42):
                 parameter = rng.uniform(20, 20000)  # Cutoff frequency in Hz
             else:
                 parameter = None  # No parameter needed for 'no_action'
-            
+
+            frequency = sample_frequency_for_action(rng, action, parameter)
+
+            if waveform_type == 'sine':
+                audio = generate_sin_wave(frequency, amplitude)
+                spectogram = audio_to_cqt(audio)
+            elif waveform_type == 'square':
+                audio = generate_square_wave(frequency, amplitude)
+                spectogram = audio_to_cqt(audio)
+            elif waveform_type == 'sawtooth':
+                audio = generate_sawtooth_wave(frequency, amplitude)
+                spectogram = audio_to_cqt(audio)
+
             # Apply the action to the audio and get the action vector and the modified audio spectrogram
             modified_audio, action_vector = apply_action(audio, action, parameter)
-            modified_spectrogram = audio_to_spectrogram(modified_audio)
+            modified_spectrogram = audio_to_cqt(modified_audio)
 
             # Append the input spectrogram, output spectrogram, action vector, and metadata to the respective lists
             input_spectrograms.append(spectogram)
@@ -136,9 +159,11 @@ def generate_training_data(seed=42):
                 'parameter': parameter,
                 'sample_rate': SAMPLE_RATE,
                 'duration': DURATION,
-                'n_fft': N_FFT,
                 'hop_length': HOP_LENGTH,
-                'n_mels': N_MELS,
+                'bins_per_octave': BINS_PER_OCTAVE,
+                'n_bins': N_BINS,
+                'fmin': FMIN,
+                'cqt_db_floor': CQT_DB_FLOOR,
                 'seed': seed
             })
 
@@ -161,7 +186,7 @@ def generate_training_data(seed=42):
     val_inputs, val_outputs, val_actions, val_metadata = map(np.array, zip(*val))
     test_inputs, test_outputs, test_actions, test_metadata = map(np.array, zip(*test))
 
-    output_dir = Path("../data/synthetic/v001")
+    output_dir = ROOT / "data/synthetic/v001"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Save the datasets and metadata to disk using np.savez
