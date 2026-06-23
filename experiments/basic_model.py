@@ -15,7 +15,7 @@ BUILD_DIR = ROOT / "build"
 
 # Hyperparameters
 BATCH_SIZE = 32
-NUM_EPOCHS = 100
+NUM_EPOCHS = 50
 LEARNING_RATE = 1e-3
 
 class SyntheticSpectrogramDataset(Dataset):
@@ -339,6 +339,9 @@ def main():
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
+    BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    best_val_delta_loss = float("inf")
+
     # Train the model for the specified number of epochs, printing the training and validation losses after each epoch
     for epoch in range(NUM_EPOCHS):
         start_time = time()
@@ -346,7 +349,7 @@ def main():
         val_losses = evaluate(model, val_loader, criterion, device)
 
         # Save the model checkpoint if it achieves the best validation delta loss so far
-        if epoch == 0 or val_losses["delta_loss"] < best_val_delta_loss:
+        if val_losses["delta_loss"] < best_val_delta_loss:
             best_val_delta_loss = val_losses["delta_loss"]
             torch.save(
                 {
@@ -375,7 +378,6 @@ def main():
     )
 
     # Save the trained model, normalization statistics, and action vector size to the build directory
-    BUILD_DIR.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
             "model_state_dict": model.state_dict(),
@@ -387,7 +389,11 @@ def main():
     )
 
     # Plot a sample from the test dataset to visualize the input, predicted target, and true target spectrograms
-    plot_sample(model, test_loader.dataset, device)
+    plot_sample(model, test_loader.dataset, device, sample_index=0)
+    plot_sample(model, test_loader.dataset, device, sample_index=1)
+    plot_sample(model, test_loader.dataset, device, sample_index=2)
+    plot_sample(model, test_loader.dataset, device, sample_index=3)
+    plot_sample(model, test_loader.dataset, device, sample_index=7)
 
 
 if __name__ == "__main__":
