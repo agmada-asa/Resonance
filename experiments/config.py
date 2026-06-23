@@ -3,3 +3,7 @@ DURATION = 2  # seconds
 N_FFT = 2048 # FFT window size
 HOP_LENGTH = 512 # Hop length for STFT
 N_MELS = 128 # Number of Mel bands
+BINS_PER_OCTAVE = 12 # Number of bins per octave for CQT
+N_BINS = 113 # Number of bins for CQT, covering C1 through roughly 20 kHz
+FMIN = 32.70 # Minimum frequency for CQT (C1 note)
+CQT_DB_FLOOR = -80.0 # Fixed CQT decibel floor, not relative to each clip
