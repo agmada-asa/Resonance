@@ -13,6 +13,27 @@ Use one hot encoding for the type of action (no action, gain, pitch change, low 
 - High Pass Filter: [0, 0, 0, 0, 1, 0, 0, cutoff_frequency_normalized]
 """
 
+def encode_action(action, parameter):
+    if action == 'no_action':
+        return [1, 0, 0, 0, 0, 0, 0, 0]
+    elif action == 'gain':
+        db = min(12, max(-12, parameter))
+        normalized_parameter = (db + 12) / 24 * 2 - 1
+        return [0, 1, 0, 0, 0, normalized_parameter, 0, 0]
+    elif action == 'pitch_change':
+        semitones = min(12, max(-12, parameter))
+        normalized_parameter = (semitones + 12) / 24 * 2 - 1
+        return [0, 0, 1, 0, 0, 0, normalized_parameter, 0]
+    elif action in ['low_pass', 'high_pass']:
+        log_cutoff = np.log10(parameter)
+        normalized_parameter = (log_cutoff - np.log10(20)) / (np.log10(20000) - np.log10(20))
+        if action == 'low_pass':
+            return [0, 0, 0, 1, 0, 0, 0, normalized_parameter]
+        return [0, 0, 0, 0, 1, 0, 0, normalized_parameter]
+    else:
+        raise ValueError("Unsupported action type. Use 'no_action', 'gain', 'pitch_change', 'low_pass', or 'high_pass'.")
+
+
 def apply_action(audio, action, parameter):
     """
     Apply the specified action to the audio data.
@@ -22,31 +43,21 @@ def apply_action(audio, action, parameter):
     :return: Tuple containing the modified audio samples and the action vector
     """
     if action == 'no_action':
-        return audio, [1, 0, 0, 0, 0, 0, 0, 0]
+        return audio, encode_action(action, parameter)
     elif action == 'gain':
         # Normalize gain parameter to a range of -1 to 1 for representation vector
         db = min(12, max(-12, parameter))  # Clamp gain to [-12 dB, 12 dB]
-        normalized_parameter = (db + 12) / 24 * 2 - 1  # Normalize to [-1, 1]
 
-        return gain(audio, db), [0, 1, 0, 0, 0, normalized_parameter, 0, 0]
+        return gain(audio, db), encode_action(action, db)
     elif action == 'pitch_change':
         # Normalize semitones parameter to a range of -1 to 1 for representation vector
         semitones = min(12, max(-12, parameter))  # Clamp semitones to [-12, 12]
-        normalized_parameter = (semitones + 12) / 24 * 2 - 1  # Normalize to [-1, 1]
         
-        return change_pitch(audio, semitones), [0, 0, 1, 0, 0, 0, normalized_parameter, 0]
+        return change_pitch(audio, semitones), encode_action(action, semitones)
     elif action == 'low_pass':
-        # Normalize cutoff frequency parameter to a range of 0 to 1 for representation vector
-        log_cutoff = np.log10(parameter)
-        normalized_parameter = (log_cutoff - np.log10(20)) / (np.log10(20000) - np.log10(20))  # Normalize to [0, 1]
-
-        return low_pass(audio, parameter), [0, 0, 0, 1, 0, 0, 0, normalized_parameter]
+        return low_pass(audio, parameter), encode_action(action, parameter)
     elif action == 'high_pass':
-        # Normalize cutoff frequency parameter to a range of 0 to 1 for representation vector
-        log_cutoff = np.log10(parameter)
-        normalized_parameter = (log_cutoff - np.log10(20)) / (np.log10(20000) - np.log10(20))  # Normalize to [0, 1]
-
-        return high_pass(audio, parameter), [0, 0, 0, 0, 1, 0, 0, normalized_parameter]
+        return high_pass(audio, parameter), encode_action(action, parameter)
     else:
         raise ValueError("Unsupported action type. Use 'no_action', 'gain', 'pitch_change', 'low_pass', or 'high_pass'.")
 
