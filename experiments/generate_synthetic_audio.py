@@ -138,7 +138,7 @@ def generate_training_data(seed=42):
             if action == 'gain':
                 parameter = rng.uniform(-12, 12)  # Gain in dB
             elif action == 'pitch_change':
-                parameter = rng.uniform(-12, 12)  # Pitch change in semitones
+                parameter = int(rng.integers(-12, 13))  # Pitch change in semitones
             elif action in ['low_pass', 'high_pass']:
                 parameter = rng.uniform(20, 20000)  # Cutoff frequency in Hz
             else:
@@ -154,10 +154,8 @@ def generate_training_data(seed=42):
             if action == 'pitch_change':
                 pitch_factor = 2 ** (parameter / 12)
                 pitch_shifted_frequency = frequency * pitch_factor
-                modified_audio = generate_waveform(waveform_type, pitch_shifted_frequency, amplitude)
-                action_vector = encode_action(action, parameter)
-            else:
-                modified_audio, action_vector = apply_action(audio, action, parameter)
+                
+            modified_audio, action_vector = apply_action(audio, action, parameter)
             modified_spectrogram = audio_to_cqt(modified_audio)
 
             # Append the input spectrogram, output spectrogram, action vector, and metadata to the respective lists

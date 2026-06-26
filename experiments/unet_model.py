@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from experiments.config import BINS_PER_OCTAVE, N_BINS
 
 # Convolution Block for encoding
 class ConvBlock(nn.Module):
@@ -35,11 +36,11 @@ class SpectrogramUNetModel(nn.Module):
 
         # Encoder block 1: 1 -> 32
         self.e1 = ConvBlock(1, 32)
-        self.pool1 = nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2))
+        self.pool1 = nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2))
 
         # Encoder block 2: 32 -> 64
         self.e2 = ConvBlock(32, 64)
-        self.pool2 = nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2)) # (1, 2) pooling to downsample time dimension only
+        self.pool2 = nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2)) # downsample both time and frequency axes to allow pitch change to fit within UNet receptive field
 
         # Encoder for action vectors
         self.action_encoder = nn.Sequential(
@@ -65,32 +66,58 @@ class SpectrogramUNetModel(nn.Module):
         # Get shape of input
         input_shape = x.shape[-2:]
 
-        # Pass x through encoders 1 and 2
-        skip1 = self.e1(x)
-        x = self.pool1(skip1)
+        # Pitch change action is index 2, normalized pitch parameter is index 6
+        is_pitch_change = action_vector[:, 2:3]
+        pitch_norm = action_vector[:, 6:7]
+        
+        
+        # Calculate Y-axis (frequency) translation
+        # pitch_norm * BINS_PER_OCTAVE gives the number of bins to shift
+        # Grid range is [-1, 1], so distance between bins is 2 / (N_BINS - 1)
+        # A negative ty shifts the image UP (higher frequencies) in grid_sample
+        ty = -pitch_norm * (2.0 * BINS_PER_OCTAVE / (N_BINS - 1)) * is_pitch_change
+        
+        theta = torch.zeros(x.size(0), 2, 3, device=x.device)
+        theta[:, 0, 0] = 1.0
+        theta[:, 1, 1] = 1.0
+        theta[:, 1, 2] = ty.squeeze(1)
+        
+        grid = F.affine_grid(theta, x.size(), align_corners=True)
 
-        skip2 = self.e2(x)
-        x = self.pool2(skip2)
+        # Use border padding to extend the CQT floor to shifted regions
+        x_aligned = F.grid_sample(x, grid, mode='bilinear', padding_mode='border', align_corners=True)
 
-        # Turn the action vector into an embedding in the same dimension as x
+        # Pass aligned input through encoders 1 and 2
+        skip1 = self.e1(x_aligned)
+        h = self.pool1(skip1)
+
+        skip2 = self.e2(h)
+        h = self.pool2(skip2)
+
+        # Turn the action vector into an embedding in the same dimension as h
         action_embd = self.action_encoder(action_vector)
         action_embd = action_embd[:, :, None, None]
-        action_embd = action_embd.expand(-1, -1, x.shape[-2], x.shape[-1])
+        action_embd = action_embd.expand(-1, -1, h.shape[-2], h.shape[-1])
 
-        # Merge x and the action embedding together in the bottleneck
-        x = torch.cat([x, action_embd], dim=1)
-        x = self.bottleneck(x)
+        # Merge h and the action embedding together in the bottleneck
+        h = torch.cat([h, action_embd], dim=1)
+        h = self.bottleneck(h)
 
-        # Pass x through the decoders 2 and 1
-        x = self.d2(x, skip2)
-        x = self.d1(x, skip1)
+        # Pass h through the decoders 2 and 1
+        h = self.d2(h, skip2)
+        h = self.d1(h, skip1)
 
-        # Get the predicted output
-        predicted_delta = self.output(x)
+        # Get the predicted output refinement
+        unet_refinement = self.output(h)
 
-        return F.interpolate(
-            predicted_delta,
+        unet_refinement = F.interpolate(
+            unet_refinement,
             size=input_shape,
             mode="bilinear",
             align_corners=False
         )
+        
+        # The true delta relative to the original input x is the alignment shift + the UNet's refinement
+        predicted_delta = (x_aligned - x) + unet_refinement
+        
+        return predicted_delta
