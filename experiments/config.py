@@ -1,9 +1,24 @@
-SAMPLE_RATE = 44100 # Hz
-DURATION = 2  # seconds
-N_FFT = 2048 # FFT window size
-HOP_LENGTH = 512 # Hop length for STFT
-N_MELS = 128 # Number of Mel bands
-BINS_PER_OCTAVE = 12 # Number of bins per octave for CQT - use 36 for higher frequency resolution
-N_BINS = 113 # Number of bins for CQT, covering C1 through roughly 20 kHz without exceeding Nyquist
-FMIN = 32.70 # Minimum frequency for CQT (C1 note)
-CQT_DB_FLOOR = -80.0 # Fixed CQT decibel floor, not relative to each clip
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from resonance.config import (  # noqa: E402,F401
+    BINS_PER_OCTAVE,
+    CQT_DB_FLOOR,
+    DEFAULT_CONFIG,
+    DEFAULT_PATHS,
+    DURATION,
+    FMIN,
+    HOP_LENGTH,
+    N_BINS,
+    N_FFT,
+    N_MELS,
+    SAMPLE_RATE,
+    AudioConfig,
+    ProjectPaths,
+)
+
