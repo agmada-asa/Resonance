@@ -1,15 +1,18 @@
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 import soundfile as sf
 from sklearn.model_selection import train_test_split
 
-from experiments.actions import apply_action
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from experiments.actions import apply_action, encode_action
 from experiments.audio_to_spectogram import audio_to_cqt
 from experiments.config import BINS_PER_OCTAVE, CQT_DB_FLOOR, FMIN, HOP_LENGTH, N_BINS, N_FFT, N_MELS, SAMPLE_RATE, DURATION
-
-ROOT = Path(__file__).resolve().parents[1]
 
 # SINE WAVES
 def generate_sin_wave(frequency, amplitude=0.5):
@@ -57,6 +60,17 @@ def create_audio_file(filepath, waveform_type, frequency, amplitude=0.5):
         sf.write(filepath, generate_square_wave(frequency, amplitude), SAMPLE_RATE)
     elif waveform_type == 'sawtooth':
         sf.write(filepath, generate_sawtooth_wave(frequency, amplitude), SAMPLE_RATE)
+    else:
+        raise ValueError("Unsupported waveform type. Use 'sine', 'square', or 'sawtooth'.")
+
+
+def generate_waveform(waveform_type, frequency, amplitude):
+    if waveform_type == 'sine':
+        return generate_sin_wave(frequency, amplitude)
+    elif waveform_type == 'square':
+        return generate_square_wave(frequency, amplitude)
+    elif waveform_type == 'sawtooth':
+        return generate_sawtooth_wave(frequency, amplitude)
     else:
         raise ValueError("Unsupported waveform type. Use 'sine', 'square', or 'sawtooth'.")
 
@@ -132,18 +146,18 @@ def generate_training_data(seed=42):
 
             frequency = sample_frequency_for_action(rng, action, parameter)
 
-            if waveform_type == 'sine':
-                audio = generate_sin_wave(frequency, amplitude)
-                spectogram = audio_to_cqt(audio)
-            elif waveform_type == 'square':
-                audio = generate_square_wave(frequency, amplitude)
-                spectogram = audio_to_cqt(audio)
-            elif waveform_type == 'sawtooth':
-                audio = generate_sawtooth_wave(frequency, amplitude)
-                spectogram = audio_to_cqt(audio)
+            audio = generate_waveform(waveform_type, frequency, amplitude)
+            spectogram = audio_to_cqt(audio)
 
             # Apply the action to the audio and get the action vector and the modified audio spectrogram
-            modified_audio, action_vector = apply_action(audio, action, parameter)
+            pitch_shifted_frequency = None
+            if action == 'pitch_change':
+                pitch_factor = 2 ** (parameter / 12)
+                pitch_shifted_frequency = frequency * pitch_factor
+                modified_audio = generate_waveform(waveform_type, pitch_shifted_frequency, amplitude)
+                action_vector = encode_action(action, parameter)
+            else:
+                modified_audio, action_vector = apply_action(audio, action, parameter)
             modified_spectrogram = audio_to_cqt(modified_audio)
 
             # Append the input spectrogram, output spectrogram, action vector, and metadata to the respective lists
@@ -154,6 +168,7 @@ def generate_training_data(seed=42):
                 'id': index,
                 'waveform_type': waveform_type,
                 'frequency': frequency,
+                'pitch_shifted_frequency': pitch_shifted_frequency,
                 'amplitude': amplitude,
                 'action': action,
                 'parameter': parameter,
