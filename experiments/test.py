@@ -1,16 +1,20 @@
 from pathlib import Path
 import sys
 
+import librosa
+import numpy as np
+import soundfile as sf
+import torch
 from torch.utils.data import DataLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from experiments.actions import apply_action
+from experiments.config import BINS_PER_OCTAVE, DURATION, FMIN, HOP_LENGTH, SAMPLE_RATE
 from experiments.dataset import SyntheticSpectrogramDataset
-
-import torch
-
+from experiments.generate_synthetic_audio import generate_waveform
 from experiments.train import load_normalization_stats
 from experiments.unet_model import SpectrogramUNetModel
 
@@ -220,6 +224,142 @@ def evaluate_losses_by_action(model, dataset, device, batch_size=EVAL_BATCH_SIZE
         )
 
 
+def peak_normalize_audio(audio, target_peak=0.5):
+    audio = np.nan_to_num(audio).astype(np.float32)
+    peak = np.max(np.abs(audio))
+    if peak == 0 or peak <= target_peak:
+        return audio
+
+    return audio * (target_peak / peak)
+
+
+def export_audio_comparison_samples(
+    model,
+    dataset,
+    device,
+    mean,
+    std,
+    samples_per_waveform=3,
+    output_dir=ROOT / "build" / "audio_samples",
+    reconstruction_iterations=32,
+):
+    if dataset.metadata is None:
+        raise ValueError("Test metadata file is required to export audio samples.")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    waveform_types = ["sine", "square", "sawtooth"]
+    selected_indices_by_waveform = {}
+
+    for waveform_type in waveform_types:
+        selected_indices = [
+            index
+            for index, metadata in enumerate(dataset.metadata)
+            if metadata["waveform_type"] == waveform_type
+        ][:samples_per_waveform]
+
+        if len(selected_indices) < samples_per_waveform:
+            raise ValueError(
+                f"Only found {len(selected_indices)} {waveform_type} samples; "
+                f"need {samples_per_waveform}."
+            )
+
+        selected_indices_by_waveform[waveform_type] = selected_indices
+
+    model.eval()
+    exported_files = []
+
+    print(f"\nExporting comparison audio samples to {output_dir}:")
+    with torch.no_grad():
+        for waveform_type, selected_indices in selected_indices_by_waveform.items():
+            waveform_dir = output_dir / waveform_type
+            waveform_dir.mkdir(parents=True, exist_ok=True)
+
+            for sample_number, sample_index in enumerate(selected_indices, start=1):
+                metadata = dataset.metadata[sample_index]
+                sample = dataset[sample_index]
+                sample_input = sample["input"].unsqueeze(0).to(device)
+                sample_action_vector = sample["action_vector"].unsqueeze(0).to(device)
+
+                predicted_delta = model(sample_input, sample_action_vector)
+                predicted_target = sample_input + predicted_delta
+                predicted_cqt_db = (
+                    predicted_target.squeeze().detach().cpu().numpy() * std + mean
+                )
+                predicted_cqt_amplitude = librosa.db_to_amplitude(
+                    np.nan_to_num(predicted_cqt_db),
+                    ref=1.0,
+                )
+                predicted_audio = librosa.griffinlim_cqt(
+                    predicted_cqt_amplitude,
+                    n_iter=reconstruction_iterations,
+                    sr=SAMPLE_RATE,
+                    hop_length=HOP_LENGTH,
+                    fmin=FMIN,
+                    bins_per_octave=BINS_PER_OCTAVE,
+                    length=int(SAMPLE_RATE * DURATION),
+                    random_state=0,
+                )
+
+                before_audio = generate_waveform(
+                    metadata["waveform_type"],
+                    metadata["frequency"],
+                    metadata["amplitude"],
+                )
+                target_after_audio, _ = apply_action(
+                    before_audio,
+                    metadata["action"],
+                    metadata["parameter"],
+                )
+
+                param_str = "None" if metadata["parameter"] is None else f"{metadata['parameter']:.2f}"
+
+                file_stem = (
+                    f"{sample_number:02d}_idx{sample_index}_"
+                    f"{metadata['action']}_"
+                    f"{param_str}"
+                ).replace("+", "plus").replace("-", "minus")
+                sample_dir = waveform_dir / file_stem
+                sample_dir.mkdir(parents=True, exist_ok=True)
+
+                before_path = sample_dir / "before.wav"
+                target_after_path = sample_dir / "target_after.wav"
+                predicted_after_path = sample_dir / "predicted_after.wav"
+
+                sf.write(
+                    before_path,
+                    peak_normalize_audio(before_audio),
+                    SAMPLE_RATE,
+                    subtype="FLOAT",
+                )
+                sf.write(
+                    target_after_path,
+                    peak_normalize_audio(target_after_audio),
+                    SAMPLE_RATE,
+                    subtype="FLOAT",
+                )
+                sf.write(
+                    predicted_after_path,
+                    peak_normalize_audio(predicted_audio),
+                    SAMPLE_RATE,
+                    subtype="FLOAT",
+                )
+
+                exported_files.extend(
+                    [
+                        before_path,
+                        target_after_path,
+                        predicted_after_path,
+                    ]
+                )
+                print(
+                    f"  {waveform_type} sample {sample_number}: "
+                    f"action={metadata['action']}, "
+                    f"parameter={metadata['parameter']}"
+                )
+
+    print(f"Exported {len(exported_files)} audio files.")
+    return exported_files
+
 def main():
     # Determine the device to use (GPU if available, otherwise CPU)
     if torch.cuda.is_available():
@@ -265,8 +405,8 @@ def main():
         else:
             print(f"No samples found for action: {action}")
 
+    export_audio_comparison_samples(model, dataset, device, mean, std)
     evaluate_losses_by_action(model, dataset, device)
-
 
 
 if __name__ == "__main__":
