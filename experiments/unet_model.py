@@ -35,11 +35,11 @@ class SpectrogramUNetModel(nn.Module):
 
         # Encoder block 1: 1 -> 32
         self.e1 = ConvBlock(1, 32)
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pool1 = nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2))
 
         # Encoder block 2: 32 -> 64
         self.e2 = ConvBlock(32, 64)
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pool2 = nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2)) # (1, 2) pooling to downsample time dimension only
 
         # Encoder for action vectors
         self.action_encoder = nn.Sequential(
