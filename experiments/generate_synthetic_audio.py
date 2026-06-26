@@ -130,59 +130,61 @@ def generate_training_data(seed=42):
     rng = np.random.default_rng(seed)
 
     for waveform_type in ['sine', 'square', 'sawtooth']:
-        for _ in range(1000):  # Generate 1000 samples for each waveform type
-            amplitude = rng.uniform(0.1, 1.0)  # Random amplitude between 0.1 and 1.0
+        for action in ['no_action', 'gain', 'pitch_change', 'low_pass', 'high_pass']:
+            # Increase proportion of high pass and pitch change samples as these are harder to learn and have worst performance
+            NUM_SAMPLES = 1000 if action == 'pitch_change' or action == 'high_pass' else 500
+            for _ in range(NUM_SAMPLES):  # Generate 1000 samples for each waveform type
+                amplitude = rng.uniform(0.1, 1.0)  # Random amplitude between 0.1 and 1.0
 
-            # Choose a random action and parameter for the audio transformation
-            action = rng.choice(['no_action', 'gain', 'pitch_change', 'low_pass', 'high_pass'])
-            if action == 'gain':
-                parameter = rng.uniform(-12, 12)  # Gain in dB
-            elif action == 'pitch_change':
-                parameter = int(rng.integers(-12, 13))  # Pitch change in semitones
-            elif action in ['low_pass', 'high_pass']:
-                parameter = rng.uniform(20, 20000)  # Cutoff frequency in Hz
-            else:
-                parameter = None  # No parameter needed for 'no_action'
+                # Choose a random parameter for the audio transformation
+                if action == 'gain':
+                    parameter = rng.uniform(-12, 12)  # Gain in dB
+                elif action == 'pitch_change':
+                    parameter = int(rng.integers(-12, 13))  # Pitch change in semitones
+                elif action in ['low_pass', 'high_pass']:
+                    parameter = rng.uniform(20, 20000)  # Cutoff frequency in Hz
+                else:
+                    parameter = None  # No parameter needed for 'no_action'
 
-            frequency = sample_frequency_for_action(rng, action, parameter)
+                frequency = sample_frequency_for_action(rng, action, parameter)
 
-            audio = generate_waveform(waveform_type, frequency, amplitude)
-            spectogram = audio_to_cqt(audio)
+                audio = generate_waveform(waveform_type, frequency, amplitude)
+                spectogram = audio_to_cqt(audio)
 
-            # Apply the action to the audio and get the action vector and the modified audio spectrogram
-            pitch_shifted_frequency = None
-            if action == 'pitch_change':
-                pitch_factor = 2 ** (parameter / 12)
-                pitch_shifted_frequency = frequency * pitch_factor
-                
-            modified_audio, action_vector = apply_action(audio, action, parameter)
-            modified_spectrogram = audio_to_cqt(modified_audio)
+                # Apply the action to the audio and get the action vector and the modified audio spectrogram
+                pitch_shifted_frequency = None
+                if action == 'pitch_change':
+                    pitch_factor = 2 ** (parameter / 12)
+                    pitch_shifted_frequency = frequency * pitch_factor
 
-            # Append the input spectrogram, output spectrogram, action vector, and metadata to the respective lists
-            input_spectrograms.append(spectogram)
-            output_spectrograms.append(modified_spectrogram)
-            action_vectors.append(action_vector)
-            metadata.append({
-                'id': index,
-                'waveform_type': waveform_type,
-                'frequency': frequency,
-                'pitch_shifted_frequency': pitch_shifted_frequency,
-                'amplitude': amplitude,
-                'action': action,
-                'parameter': parameter,
-                'sample_rate': SAMPLE_RATE,
-                'duration': DURATION,
-                'hop_length': HOP_LENGTH,
-                'bins_per_octave': BINS_PER_OCTAVE,
-                'n_bins': N_BINS,
-                'fmin': FMIN,
-                'cqt_db_floor': CQT_DB_FLOOR,
-                'seed': seed
-            })
+                modified_audio, action_vector = apply_action(audio, action, parameter)
+                modified_spectrogram = audio_to_cqt(modified_audio)
 
-            index += 1
+                # Append the input spectrogram, output spectrogram, action vector, and metadata to the respective lists
+                input_spectrograms.append(spectogram)
+                output_spectrograms.append(modified_spectrogram)
+                action_vectors.append(action_vector)
+                metadata.append({
+                    'id': index,
+                    'waveform_type': waveform_type,
+                    'frequency': frequency,
+                    'pitch_shifted_frequency': pitch_shifted_frequency,
+                    'amplitude': amplitude,
+                    'action': action,
+                    'parameter': parameter,
+                    'sample_rate': SAMPLE_RATE,
+                    'duration': DURATION,
+                    'hop_length': HOP_LENGTH,
+                    'bins_per_octave': BINS_PER_OCTAVE,
+                    'n_bins': N_BINS,
+                    'fmin': FMIN,
+                    'cqt_db_floor': CQT_DB_FLOOR,
+                    'seed': seed
+                })
 
-            print(f"Data generation progress: {((index / (3 * 1000)) * 100):.2f}%")
+                index += 1
+
+                print(f"Data generation progress: {((index / (3 * 3500)) * 100):.2f}%")
 
     # Convert lists to numpy arrays
     input_spectrograms = np.array(input_spectrograms)
