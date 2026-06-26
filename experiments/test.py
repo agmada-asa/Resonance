@@ -1,6 +1,8 @@
 from pathlib import Path
 import sys
 
+from torch.utils.data import DataLoader
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -13,6 +15,7 @@ from experiments.train import load_normalization_stats
 from experiments.unet_model import SpectrogramUNetModel
 
 DATA_DIR = ROOT / "data/synthetic/v001"
+EVAL_BATCH_SIZE = 32
 
 # Plot a sample from the dataset, showing the input spectrogram, predicted target spectrogram, and true target spectrogram
 def plot_sample(model, dataset, device, sample_index=0):
@@ -65,7 +68,14 @@ def plot_sample(model, dataset, device, sample_index=0):
         torch.tensor(predicted_delta_spectrogram),
         torch.tensor(target_delta_spectrogram),
     ).item()
-    print(f"MSE Loss for sample {sample_index} with action {metadata['action']}: {mse_loss:.6f}")
+    l1_loss = torch.nn.functional.l1_loss(
+        torch.tensor(predicted_delta_spectrogram),
+        torch.tensor(target_delta_spectrogram),
+    ).item()
+    print(
+        f"Loss for sample {sample_index} with action {metadata['action']}: "
+        f"MSE={mse_loss:.6f} L1={l1_loss:.6f}"
+    )
 
     plt.figure(figsize=(12, 8))
     plt.subplot(2, 3, 1)
@@ -135,6 +145,81 @@ def plot_sample(model, dataset, device, sample_index=0):
     plt.show()
 
 
+def evaluate_losses_by_action(model, dataset, device, batch_size=EVAL_BATCH_SIZE):
+    if dataset.metadata is None:
+        raise ValueError("Test metadata file is required to evaluate losses by action.")
+
+    model.eval()
+    data_loader = DataLoader(dataset, batch_size=batch_size)
+    totals = {}
+    example_offset = 0
+
+    with torch.no_grad():
+        for batch in data_loader:
+            batch_size = batch["input"].shape[0]
+            sample_input = batch["input"].to(device)
+            target_delta = batch["target_delta"].to(device)
+            target = batch["target"].to(device)
+            action_vector = batch["action_vector"].to(device)
+
+            predicted_delta = model(sample_input, action_vector)
+            predicted_target = sample_input + predicted_delta
+
+            delta_mse = torch.nn.functional.mse_loss(
+                predicted_delta,
+                target_delta,
+                reduction="none",
+            ).mean(dim=(1, 2, 3))
+            delta_l1 = torch.nn.functional.l1_loss(
+                predicted_delta,
+                target_delta,
+                reduction="none",
+            ).mean(dim=(1, 2, 3))
+            identity_mse = torch.nn.functional.mse_loss(
+                sample_input,
+                target,
+                reduction="none",
+            ).mean(dim=(1, 2, 3))
+            identity_l1 = torch.nn.functional.l1_loss(
+                sample_input,
+                target,
+                reduction="none",
+            ).mean(dim=(1, 2, 3))
+
+            for batch_index in range(batch_size):
+                action = dataset.metadata[example_offset + batch_index]["action"]
+                if action not in totals:
+                    totals[action] = {
+                        "count": 0,
+                        "delta_mse": 0.0,
+                        "delta_l1": 0.0,
+                        "identity_mse": 0.0,
+                        "identity_l1": 0.0,
+                    }
+
+                totals[action]["count"] += 1
+                totals[action]["delta_mse"] += delta_mse[batch_index].item()
+                totals[action]["delta_l1"] += delta_l1[batch_index].item()
+                totals[action]["identity_mse"] += identity_mse[batch_index].item()
+                totals[action]["identity_l1"] += identity_l1[batch_index].item()
+
+            example_offset += batch_size
+
+    print("\nPer-action test losses:")
+    print("action          count  delta_mse  delta_l1   identity_mse  identity_l1")
+    for action in sorted(totals):
+        action_totals = totals[action]
+        count = action_totals["count"]
+        print(
+            f"{action:<14}"
+            f"{count:>5}  "
+            f"{action_totals['delta_mse'] / count:>9.6f}  "
+            f"{action_totals['delta_l1'] / count:>8.6f}  "
+            f"{action_totals['identity_mse'] / count:>12.6f}  "
+            f"{action_totals['identity_l1'] / count:>11.6f}"
+        )
+
+
 def main():
     # Determine the device to use (GPU if available, otherwise CPU)
     if torch.cuda.is_available():
@@ -179,6 +264,8 @@ def main():
 
         else:
             print(f"No samples found for action: {action}")
+
+    evaluate_losses_by_action(model, dataset, device)
 
 
 
