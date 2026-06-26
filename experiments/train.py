@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import sys
 from time import time
 
@@ -20,7 +21,7 @@ BUILD_DIR = ROOT / "build"
 
 # Hyperparameters
 BATCH_SIZE = 32
-NUM_EPOCHS = 50
+NUM_EPOCHS = 75
 LEARNING_RATE = 1e-3
 
 # Get the mean and standard deviation of the training spectrograms for normalization
@@ -131,7 +132,7 @@ def main():
     # model = SpectrogramTransitionModel(action_vector_size).to(device)
     model = SpectrogramUNetModel(action_vector_size).to(device)
 
-    # Define the loss function (MSE) and optimizer
+    # Define the loss function and optimizer
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
@@ -185,11 +186,11 @@ def main():
     )
 
     # Plot a sample from the test dataset to visualize the input, predicted target, and true target spectrograms
-    plot_sample(model, test_loader.dataset, device, sample_index=0)
-    plot_sample(model, test_loader.dataset, device, sample_index=1)
-    plot_sample(model, test_loader.dataset, device, sample_index=2)
-    plot_sample(model, test_loader.dataset, device, sample_index=3)
-    plot_sample(model, test_loader.dataset, device, sample_index=7)
+    # plot_sample(model, test_loader.dataset, device, sample_index=0)
+    # plot_sample(model, test_loader.dataset, device, sample_index=1)
+    # plot_sample(model, test_loader.dataset, device, sample_index=2)
+    # plot_sample(model, test_loader.dataset, device, sample_index=3)
+    # plot_sample(model, test_loader.dataset, device, sample_index=7)
 
 
 if __name__ == "__main__":
