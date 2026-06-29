@@ -19,7 +19,6 @@ class AudioConfig:
 
 @dataclass(frozen=True)
 class ProjectPaths:
-    root: Path = ROOT
     data_dir: Path = ROOT / "data/synthetic/v001"
     build_dir: Path = ROOT / "build"
 
@@ -36,4 +35,3 @@ BINS_PER_OCTAVE = DEFAULT_CONFIG.bins_per_octave  # Number of bins per octave fo
 N_BINS = DEFAULT_CONFIG.n_bins  # Number of bins for CQT, covering C1 through roughly 20 kHz without exceeding Nyquist
 FMIN = DEFAULT_CONFIG.fmin  # Minimum frequency for CQT (C1 note)
 CQT_DB_FLOOR = DEFAULT_CONFIG.cqt_db_floor  # Fixed CQT decibel floor, not relative to each clip
-

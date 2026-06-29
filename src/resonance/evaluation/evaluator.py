@@ -15,6 +15,9 @@ EVAL_BATCH_SIZE = 32
 
 
 class SpectrogramEvaluator:
+    audio_export_directory = "audio_samples"
+    audio_export_description = "comparison"
+
     def __init__(
         self,
         config: AudioConfig = DEFAULT_CONFIG,
@@ -240,26 +243,9 @@ class SpectrogramEvaluator:
 
         return audio * (target_peak / peak)
 
-    def export_audio_comparison_samples(
-        self,
-        model,
-        dataset,
-        device,
-        mean,
-        std,
-        samples_per_waveform=3,
-        output_dir=None,
-        reconstruction_iterations=32,
-    ):
-        if dataset.metadata is None:
-            raise ValueError("Test metadata file is required to export audio samples.")
-
-        output_dir = self.paths.build_dir / "audio_samples" if output_dir is None else output_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
-        waveform_types = ["sine", "square", "sawtooth"]
+    def _select_audio_export_indices(self, dataset, samples_per_waveform):
         selected_indices_by_waveform = {}
-
-        for waveform_type in waveform_types:
+        for waveform_type in ["sine", "square", "sawtooth"]:
             selected_indices = [
                 index
                 for index, metadata in enumerate(dataset.metadata)
@@ -274,97 +260,137 @@ class SpectrogramEvaluator:
 
             selected_indices_by_waveform[waveform_type] = selected_indices
 
+        return selected_indices_by_waveform
+
+    def _prepare_audio_comparison(
+        self,
+        model,
+        dataset,
+        device,
+        mean,
+        std,
+        sample_index,
+        reconstruction_iterations,
+    ):
+        metadata = dataset.metadata[sample_index]
+        sample = dataset[sample_index]
+        sample_input = sample["input"].unsqueeze(0).to(device)
+        sample_action_vector = sample["action_vector"].unsqueeze(0).to(device)
+
+        predicted_delta = model(sample_input, sample_action_vector)
+        predicted_target = sample_input + predicted_delta
+        predicted_cqt_db = predicted_target.squeeze().detach().cpu().numpy() * std + mean
+        predicted_cqt_amplitude = librosa.db_to_amplitude(
+            np.nan_to_num(predicted_cqt_db),
+            ref=1.0,
+        )
+        predicted_audio = librosa.griffinlim_cqt(
+            predicted_cqt_amplitude,
+            n_iter=reconstruction_iterations,
+            sr=self.config.sample_rate,
+            hop_length=self.config.hop_length,
+            fmin=self.config.fmin,
+            bins_per_octave=self.config.bins_per_octave,
+            length=int(self.config.sample_rate * self.config.duration),
+            random_state=0,
+        )
+
+        before_audio = self.waveform_synthesizer.generate_waveform(
+            metadata["waveform_type"],
+            metadata["frequency"],
+            metadata["amplitude"],
+        )
+        target_after_audio, _ = self.action_processor.apply_action(
+            before_audio,
+            metadata["action"],
+            metadata["parameter"],
+        )
+        return {
+            "metadata": metadata,
+            "predicted_cqt_db": predicted_cqt_db,
+            "audio": {
+                "before.wav": before_audio,
+                "target_after.wav": target_after_audio,
+                "predicted_after.wav": predicted_audio,
+            },
+        }
+
+    def _format_audio_export(self, comparison, sample_number, sample_index):
+        metadata = comparison["metadata"]
+        parameter = metadata["parameter"]
+        parameter_text = "None" if parameter is None else f"{parameter:.2f}"
+        file_stem = (
+            f"{sample_number:02d}_idx{sample_index}_"
+            f"{metadata['action']}_{parameter_text}"
+        ).replace("+", "plus").replace("-", "minus")
+        message = (
+            f"  {metadata['waveform_type']} sample {sample_number}: "
+            f"action={metadata['action']}, parameter={parameter}"
+        )
+        return file_stem, message
+
+    def export_audio_comparison_samples(
+        self,
+        model,
+        dataset,
+        device,
+        mean,
+        std,
+        samples_per_waveform=3,
+        output_dir=None,
+        reconstruction_iterations=32,
+    ):
+        if dataset.metadata is None:
+            raise ValueError("Test metadata file is required to export audio samples.")
+
+        output_dir = (
+            self.paths.build_dir / self.audio_export_directory
+            if output_dir is None
+            else output_dir
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        selected_indices_by_waveform = self._select_audio_export_indices(
+            dataset,
+            samples_per_waveform,
+        )
+
         model.eval()
         exported_files = []
 
-        print(f"\nExporting comparison audio samples to {output_dir}:")
+        print(f"\nExporting {self.audio_export_description} audio samples to {output_dir}:")
         with torch.no_grad():
             for waveform_type, selected_indices in selected_indices_by_waveform.items():
                 waveform_dir = output_dir / waveform_type
                 waveform_dir.mkdir(parents=True, exist_ok=True)
 
                 for sample_number, sample_index in enumerate(selected_indices, start=1):
-                    metadata = dataset.metadata[sample_index]
-                    sample = dataset[sample_index]
-                    sample_input = sample["input"].unsqueeze(0).to(device)
-                    sample_action_vector = sample["action_vector"].unsqueeze(0).to(device)
-
-                    predicted_delta = model(sample_input, sample_action_vector)
-                    predicted_target = sample_input + predicted_delta
-                    predicted_cqt_db = (
-                        predicted_target.squeeze().detach().cpu().numpy() * std + mean
+                    comparison = self._prepare_audio_comparison(
+                        model,
+                        dataset,
+                        device,
+                        mean,
+                        std,
+                        sample_index,
+                        reconstruction_iterations,
                     )
-                    predicted_cqt_amplitude = librosa.db_to_amplitude(
-                        np.nan_to_num(predicted_cqt_db),
-                        ref=1.0,
+                    file_stem, message = self._format_audio_export(
+                        comparison,
+                        sample_number,
+                        sample_index,
                     )
-                    predicted_audio = librosa.griffinlim_cqt(
-                        predicted_cqt_amplitude,
-                        n_iter=reconstruction_iterations,
-                        sr=self.config.sample_rate,
-                        hop_length=self.config.hop_length,
-                        fmin=self.config.fmin,
-                        bins_per_octave=self.config.bins_per_octave,
-                        length=int(self.config.sample_rate * self.config.duration),
-                        random_state=0,
-                    )
-
-                    before_audio = self.waveform_synthesizer.generate_waveform(
-                        metadata["waveform_type"],
-                        metadata["frequency"],
-                        metadata["amplitude"],
-                    )
-                    target_after_audio, _ = self.action_processor.apply_action(
-                        before_audio,
-                        metadata["action"],
-                        metadata["parameter"],
-                    )
-
-                    param_str = "None" if metadata["parameter"] is None else f"{metadata['parameter']:.2f}"
-
-                    file_stem = (
-                        f"{sample_number:02d}_idx{sample_index}_"
-                        f"{metadata['action']}_"
-                        f"{param_str}"
-                    ).replace("+", "plus").replace("-", "minus")
                     sample_dir = waveform_dir / file_stem
                     sample_dir.mkdir(parents=True, exist_ok=True)
 
-                    before_path = sample_dir / "before.wav"
-                    target_after_path = sample_dir / "target_after.wav"
-                    predicted_after_path = sample_dir / "predicted_after.wav"
-
-                    sf.write(
-                        before_path,
-                        self.peak_normalize_audio(before_audio),
-                        self.config.sample_rate,
-                        subtype="FLOAT",
-                    )
-                    sf.write(
-                        target_after_path,
-                        self.peak_normalize_audio(target_after_audio),
-                        self.config.sample_rate,
-                        subtype="FLOAT",
-                    )
-                    sf.write(
-                        predicted_after_path,
-                        self.peak_normalize_audio(predicted_audio),
-                        self.config.sample_rate,
-                        subtype="FLOAT",
-                    )
-
-                    exported_files.extend(
-                        [
-                            before_path,
-                            target_after_path,
-                            predicted_after_path,
-                        ]
-                    )
-                    print(
-                        f"  {waveform_type} sample {sample_number}: "
-                        f"action={metadata['action']}, "
-                        f"parameter={metadata['parameter']}"
-                    )
+                    for filename, audio in comparison["audio"].items():
+                        path = sample_dir / filename
+                        sf.write(
+                            path,
+                            self.peak_normalize_audio(audio),
+                            self.config.sample_rate,
+                            subtype="FLOAT",
+                        )
+                        exported_files.append(path)
+                    print(message)
 
         print(f"Exported {len(exported_files)} audio files.")
         return exported_files
@@ -432,6 +458,9 @@ class SpectrogramEvaluator:
 
 
 class PitchOnlySpectrogramEvaluator(SpectrogramEvaluator):
+    audio_export_directory = "pitch_only_audio_samples"
+    audio_export_description = "pitch comparison"
+
     def peak_normalize_audio(self, audio, target_peak=0.95):
         return super().peak_normalize_audio(audio, target_peak)
 
@@ -440,150 +469,31 @@ class PitchOnlySpectrogramEvaluator(SpectrogramEvaluator):
         dominant_bin = int(np.argmax(bin_energy))
         return self.config.fmin * 2 ** (dominant_bin / self.config.bins_per_octave)
 
-    def export_audio_comparison_samples(
-        self,
-        model,
-        dataset,
-        device,
-        mean,
-        std,
-        samples_per_waveform=3,
-        output_dir=None,
-        reconstruction_iterations=32,
-    ):
-        if dataset.metadata is None:
-            raise ValueError("Test metadata file is required to export audio samples.")
-
-        output_dir = self.paths.build_dir / "pitch_only_audio_samples" if output_dir is None else output_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
-        waveform_types = ["sine", "square", "sawtooth"]
-        selected_indices_by_waveform = {}
-
-        for waveform_type in waveform_types:
-            selected_indices = [
-                index
-                for index, metadata in enumerate(dataset.metadata)
-                if metadata["waveform_type"] == waveform_type
-            ][:samples_per_waveform]
-
-            if len(selected_indices) < samples_per_waveform:
-                raise ValueError(
-                    f"Only found {len(selected_indices)} {waveform_type} samples; "
-                    f"need {samples_per_waveform}."
-                )
-
-            selected_indices_by_waveform[waveform_type] = selected_indices
-
-        model.eval()
-        exported_files = []
-
-        print(f"\nExporting pitch comparison audio samples to {output_dir}:")
-        with torch.no_grad():
-            for waveform_type, selected_indices in selected_indices_by_waveform.items():
-                waveform_dir = output_dir / waveform_type
-                waveform_dir.mkdir(parents=True, exist_ok=True)
-
-                for sample_number, sample_index in enumerate(selected_indices, start=1):
-                    metadata = dataset.metadata[sample_index]
-                    sample = dataset[sample_index]
-                    sample_input = sample["input"].unsqueeze(0).to(device)
-                    sample_action_vector = sample["action_vector"].unsqueeze(0).to(device)
-
-                    predicted_delta = model(sample_input, sample_action_vector)
-                    predicted_target = sample_input + predicted_delta
-                    predicted_cqt_db = (
-                        predicted_target.squeeze().detach().cpu().numpy() * std + mean
-                    )
-                    predicted_frequency = self.estimate_dominant_frequency_from_cqt(
-                        predicted_cqt_db
-                    )
-                    predicted_cqt_amplitude = librosa.db_to_amplitude(
-                        np.nan_to_num(predicted_cqt_db),
-                        ref=1.0,
-                    )
-                    predicted_audio = librosa.griffinlim_cqt(
-                        predicted_cqt_amplitude,
-                        n_iter=reconstruction_iterations,
-                        sr=self.config.sample_rate,
-                        hop_length=self.config.hop_length,
-                        fmin=self.config.fmin,
-                        bins_per_octave=self.config.bins_per_octave,
-                        length=int(self.config.sample_rate * self.config.duration),
-                        random_state=0,
-                    )
-
-                    before_audio = self.waveform_synthesizer.generate_waveform(
-                        metadata["waveform_type"],
-                        metadata["frequency"],
-                        metadata["amplitude"],
-                    )
-                    target_after_audio, _ = self.action_processor.apply_action(
-                        before_audio,
-                        metadata["action"],
-                        metadata["parameter"],
-                    )
-                    predicted_pitch_resynth_audio = self.waveform_synthesizer.generate_waveform(
-                        metadata["waveform_type"],
-                        predicted_frequency,
-                        metadata["amplitude"],
-                    )
-
-                    file_stem = (
-                        f"{sample_number:02d}_idx{sample_index}_"
-                        f"{metadata['parameter']:+d}st_"
-                        f"{metadata['frequency']:.2f}hz"
-                    ).replace("+", "plus").replace("-", "minus")
-                    sample_dir = waveform_dir / file_stem
-                    sample_dir.mkdir(parents=True, exist_ok=True)
-
-                    before_path = sample_dir / "before.wav"
-                    target_after_path = sample_dir / "target_after.wav"
-                    predicted_after_path = sample_dir / "predicted_after.wav"
-                    predicted_pitch_resynth_path = sample_dir / "predicted_pitch_resynth.wav"
-
-                    sf.write(
-                        before_path,
-                        self.peak_normalize_audio(before_audio),
-                        self.config.sample_rate,
-                        subtype="FLOAT",
-                    )
-                    sf.write(
-                        target_after_path,
-                        self.peak_normalize_audio(target_after_audio),
-                        self.config.sample_rate,
-                        subtype="FLOAT",
-                    )
-                    sf.write(
-                        predicted_after_path,
-                        self.peak_normalize_audio(predicted_audio),
-                        self.config.sample_rate,
-                        subtype="FLOAT",
-                    )
-                    sf.write(
-                        predicted_pitch_resynth_path,
-                        self.peak_normalize_audio(predicted_pitch_resynth_audio),
-                        self.config.sample_rate,
-                        subtype="FLOAT",
-                    )
-
-                    exported_files.extend(
-                        [
-                            before_path,
-                            target_after_path,
-                            predicted_after_path,
-                            predicted_pitch_resynth_path,
-                        ]
-                    )
-                    print(
-                        f"  {waveform_type} sample {sample_number}: "
-                        f"{metadata['frequency']:.2f}Hz -> "
-                        f"{metadata['pitch_shifted_frequency']:.2f}Hz "
-                        f"({metadata['parameter']:+d} semitones), "
-                        f"predicted peak {predicted_frequency:.2f}Hz"
-                    )
-
-        print(f"Exported {len(exported_files)} audio files.")
-        return exported_files
+    def _format_audio_export(self, comparison, sample_number, sample_index):
+        metadata = comparison["metadata"]
+        predicted_frequency = self.estimate_dominant_frequency_from_cqt(
+            comparison["predicted_cqt_db"]
+        )
+        comparison["audio"]["predicted_pitch_resynth.wav"] = (
+            self.waveform_synthesizer.generate_waveform(
+                metadata["waveform_type"],
+                predicted_frequency,
+                metadata["amplitude"],
+            )
+        )
+        file_stem = (
+            f"{sample_number:02d}_idx{sample_index}_"
+            f"{metadata['parameter']:+d}st_"
+            f"{metadata['frequency']:.2f}hz"
+        ).replace("+", "plus").replace("-", "minus")
+        message = (
+            f"  {metadata['waveform_type']} sample {sample_number}: "
+            f"{metadata['frequency']:.2f}Hz -> "
+            f"{metadata['pitch_shifted_frequency']:.2f}Hz "
+            f"({metadata['parameter']:+d} semitones), "
+            f"predicted peak {predicted_frequency:.2f}Hz"
+        )
+        return file_stem, message
 
     def run(self):
         return super().run(
@@ -594,7 +504,6 @@ class PitchOnlySpectrogramEvaluator(SpectrogramEvaluator):
 
 
 DEFAULT_EVALUATOR = SpectrogramEvaluator()
-DEFAULT_PITCH_ONLY_EVALUATOR = PitchOnlySpectrogramEvaluator()
 
 
 def plot_sample(model, dataset, device, sample_index=0):
@@ -629,4 +538,3 @@ def export_audio_comparison_samples(
         output_dir,
         reconstruction_iterations,
     )
-

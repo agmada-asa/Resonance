@@ -1,8 +1,6 @@
 import json
-from pathlib import Path
 
 import numpy as np
-import soundfile as sf
 from sklearn.model_selection import train_test_split
 
 from resonance.actions import AudioActionProcessor
@@ -46,23 +44,6 @@ class WaveformSynthesizer:
         t = np.linspace(0, self.config.duration, int(self.config.sample_rate * self.config.duration), endpoint=False)
         return amplitude * (2 * (t * frequency - np.floor(t * frequency + 0.5)))
 
-    def create_audio_file(self, filepath, waveform_type, frequency, amplitude=0.5):
-        """
-        Create an audio file with the specified waveform type, frequency, and amplitude.
-        :param filepath: Path to save the audio file
-        :param waveform_type: Type of waveform ('sine', 'square', 'sawtooth')
-        :param frequency: Frequency of the waveform in Hz
-        :param amplitude: Amplitude of the waveform (0.0 to 1.0)
-        :return: None"""
-        if waveform_type == 'sine':
-            sf.write(filepath, self.generate_sin_wave(frequency, amplitude), self.config.sample_rate)
-        elif waveform_type == 'square':
-            sf.write(filepath, self.generate_square_wave(frequency, amplitude), self.config.sample_rate)
-        elif waveform_type == 'sawtooth':
-            sf.write(filepath, self.generate_sawtooth_wave(frequency, amplitude), self.config.sample_rate)
-        else:
-            raise ValueError("Unsupported waveform type. Use 'sine', 'square', or 'sawtooth'.")
-
     def generate_waveform(self, waveform_type, frequency, amplitude):
         if waveform_type == 'sine':
             return self.generate_sin_wave(frequency, amplitude)
@@ -91,30 +72,6 @@ class WaveformSynthesizer:
             )
 
         return rng.uniform(min_frequency, max_frequency)
-
-    def generate_data(self):
-        """
-        Generate synthetic audio data for training a model
-        Types: sine wave, square wave, sawtooth wave
-        # Frequencies: Frequencies from 20Hz to 20kHz
-        Duration: 2 seconds
-        Amplitude: 0.1 - 1.0
-        Save the generated audio files in a directory structure based on type, frequency and amplitude
-        :return: None
-        """
-
-        # Generate samples
-        waveform_types = ['sine', 'square', 'sawtooth']
-        frequencies = [262, 277, 294, 311, 330, 349, 370, 392, 415, 440, 466, 494]  # Example frequencies (C4 to B4)
-        amplitudes = [0.1, 0.3, 0.5, 0.7, 1.0]  # Example amplitudes
-
-        for waveform_type in waveform_types:
-            for frequency in frequencies:
-                for amplitude in amplitudes:
-                    filename = Path(f"../data/{waveform_type}/{frequency}Hz/{amplitude}amp.wav")
-                    filename.parent.mkdir(parents=True, exist_ok=True)
-                    self.create_audio_file(filename, waveform_type, frequency, amplitude)
-                    print(f"Generated {filename}")
 
 
 class SyntheticTrainingDataGenerator:
@@ -296,10 +253,6 @@ def generate_sawtooth_wave(frequency, amplitude=0.5):
     return DEFAULT_WAVEFORM_SYNTHESIZER.generate_sawtooth_wave(frequency, amplitude)
 
 
-def create_audio_file(filepath, waveform_type, frequency, amplitude=0.5):
-    return DEFAULT_WAVEFORM_SYNTHESIZER.create_audio_file(filepath, waveform_type, frequency, amplitude)
-
-
 def generate_waveform(waveform_type, frequency, amplitude):
     return DEFAULT_WAVEFORM_SYNTHESIZER.generate_waveform(waveform_type, frequency, amplitude)
 
@@ -312,10 +265,5 @@ def sample_frequency_for_action(rng, action, parameter):
     return DEFAULT_WAVEFORM_SYNTHESIZER.sample_frequency_for_action(rng, action, parameter)
 
 
-def generate_data():
-    return DEFAULT_WAVEFORM_SYNTHESIZER.generate_data()
-
-
 def generate_training_data(seed=42, pitch_only=False):
     return DEFAULT_SYNTHETIC_DATA_GENERATOR.generate_training_data(seed=seed, pitch_only=pitch_only)
-

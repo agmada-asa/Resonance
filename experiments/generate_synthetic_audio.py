@@ -10,8 +10,6 @@ from resonance.data.synthetic import (  # noqa: E402,F401
     SyntheticTrainingDataGenerator,
     WaveformSynthesizer,
     cqt_max_frequency,
-    create_audio_file,
-    generate_data,
     generate_sawtooth_wave,
     generate_sin_wave,
     generate_square_wave,
