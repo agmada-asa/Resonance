@@ -5,8 +5,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from resonance.config import ROOT
-
 
 class SyntheticSpectrogramDataset(Dataset):
     def __init__(self, npz_path, mean, std):
@@ -47,4 +45,3 @@ class SyntheticSpectrogramDataset(Dataset):
             "target": self.targets[index],
             "action_vector": self.action_vectors[index],
         }
-

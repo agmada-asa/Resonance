@@ -16,7 +16,7 @@ from resonance.models.unet import SpectrogramUNetModel
 class TrainingConfig:
     # Hyperparameters
     batch_size: int = 32
-    num_epochs: int = 75
+    num_epochs: int = 30
     learning_rate: float = 1e-3
     train_filename: str = "train.npz"
     val_filename: str = "val.npz"

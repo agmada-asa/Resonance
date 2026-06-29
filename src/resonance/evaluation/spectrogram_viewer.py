@@ -1,9 +1,9 @@
 import librosa.display
 import matplotlib.pyplot as plt
-import numpy as np
 
 from resonance.actions import AudioActionProcessor
 from resonance.config import AudioConfig, DEFAULT_CONFIG
+from resonance.data.synthetic import WaveformSynthesizer
 from resonance.features.spectrogram import SpectrogramTransformer
 
 
@@ -13,14 +13,15 @@ class SpectrogramViewer:
         config: AudioConfig = DEFAULT_CONFIG,
         action_processor: AudioActionProcessor | None = None,
         spectrogram_transformer: SpectrogramTransformer | None = None,
+        waveform_synthesizer: WaveformSynthesizer | None = None,
     ):
         self.config = config
         self.action_processor = action_processor or AudioActionProcessor(config)
         self.spectrogram_transformer = spectrogram_transformer or SpectrogramTransformer(config)
+        self.waveform_synthesizer = waveform_synthesizer or WaveformSynthesizer(config)
 
     def generate_sin_wave(self, frequency, amplitude=0.5):
-        t = np.linspace(0, self.config.duration, int(self.config.sample_rate * self.config.duration), endpoint=False)
-        return amplitude * np.sin(2 * np.pi * frequency * t)
+        return self.waveform_synthesizer.generate_sin_wave(frequency, amplitude)
 
     def plot_spectrogram_pair(self, first, second, first_title, second_title):
         vmin = min(first.min(), second.min())
@@ -117,4 +118,3 @@ def generate_sin_wave(frequency, amplitude=0.5):
 
 def plot_spectrogram_pair(first, second, first_title, second_title):
     return DEFAULT_SPECTROGRAM_VIEWER.plot_spectrogram_pair(first, second, first_title, second_title)
-

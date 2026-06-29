@@ -1,0 +1,160 @@
+Using device: mps
+Plotting waveform sample for action gain, waveform: sine
+Sample metadata: action=gain, parameter=-6.676240747807732, signal_type=waveform, waveform=sine, frequency=543.00Hz
+Loss for sample 44 with action gain: MSE=0.002283 L1=0.033379
+/Users/agmad/Documents/Resonance/src/resonance/evaluation/evaluator.py:164: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown
+  plt.show()
+Plotting waveform sample for action high_pass, waveform: sine
+Sample metadata: action=high_pass, parameter=4275.492961159641, signal_type=waveform, waveform=sine, frequency=15471.88Hz
+Loss for sample 16 with action high_pass: MSE=0.001049 L1=0.007119
+Plotting waveform sample for action low_pass, waveform: sine
+Sample metadata: action=low_pass, parameter=5215.065327464878, signal_type=waveform, waveform=sine, frequency=13127.20Hz
+Loss for sample 15 with action low_pass: MSE=0.000743 L1=0.009491
+Plotting waveform sample for action no_action, waveform: sine
+Sample metadata: action=no_action, parameter=None, signal_type=waveform, waveform=sine, frequency=18924.71Hz
+Loss for sample 8 with action no_action: MSE=0.000005 L1=0.001076
+Plotting waveform sample for action pitch_change, waveform: sine
+Sample metadata: action=pitch_change, parameter=12, signal_type=waveform, waveform=sine, frequency=646.89Hz
+Loss for sample 0 with action pitch_change: MSE=0.033033 L1=0.103153
+Plotting waveform sample for action gain, waveform: square
+Sample metadata: action=gain, parameter=-3.6943255802908084, signal_type=waveform, waveform=square, frequency=7564.99Hz
+Loss for sample 31 with action gain: MSE=0.000427 L1=0.010291
+Plotting waveform sample for action high_pass, waveform: square
+Sample metadata: action=high_pass, parameter=12539.27663515265, signal_type=waveform, waveform=square, frequency=8733.25Hz
+Loss for sample 13 with action high_pass: MSE=0.005328 L1=0.027379
+Plotting waveform sample for action low_pass, waveform: square
+Sample metadata: action=low_pass, parameter=9512.686362227538, signal_type=waveform, waveform=square, frequency=13644.05Hz
+Loss for sample 10 with action low_pass: MSE=0.001037 L1=0.010095
+Plotting waveform sample for action no_action, waveform: square
+Sample metadata: action=no_action, parameter=None, signal_type=waveform, waveform=square, frequency=8388.67Hz
+Loss for sample 51 with action no_action: MSE=0.000014 L1=0.002112
+Plotting waveform sample for action pitch_change, waveform: square
+Sample metadata: action=pitch_change, parameter=-11, signal_type=waveform, waveform=square, frequency=12125.75Hz
+Loss for sample 12 with action pitch_change: MSE=0.009298 L1=0.035215
+Plotting waveform sample for action gain, waveform: sawtooth
+Sample metadata: action=gain, parameter=7.988045091832214, signal_type=waveform, waveform=sawtooth, frequency=17688.39Hz
+Loss for sample 129 with action gain: MSE=0.000686 L1=0.008409
+Plotting waveform sample for action high_pass, waveform: sawtooth
+Sample metadata: action=high_pass, parameter=5582.72998588848, signal_type=waveform, waveform=sawtooth, frequency=16103.80Hz
+Loss for sample 30 with action high_pass: MSE=0.001766 L1=0.009353
+Plotting waveform sample for action low_pass, waveform: sawtooth
+Sample metadata: action=low_pass, parameter=3801.5049676704493, signal_type=waveform, waveform=sawtooth, frequency=12642.36Hz
+Loss for sample 5 with action low_pass: MSE=0.000991 L1=0.010721
+Plotting waveform sample for action no_action, waveform: sawtooth
+Sample metadata: action=no_action, parameter=None, signal_type=waveform, waveform=sawtooth, frequency=4094.05Hz
+Loss for sample 14 with action no_action: MSE=0.000016 L1=0.002498
+Plotting waveform sample for action pitch_change, waveform: sawtooth
+Sample metadata: action=pitch_change, parameter=4, signal_type=waveform, waveform=sawtooth, frequency=9470.07Hz
+Loss for sample 40 with action pitch_change: MSE=0.018714 L1=0.045131
+Plotting chord sample for action gain, waveform: sine
+Sample metadata: action=gain, parameter=2.646958840892414, signal_type=chord, waveform=sine, frequency=1274.90Hz
+Loss for sample 6 with action gain: MSE=0.001080 L1=0.020679
+Plotting chord sample for action high_pass, waveform: sine
+Sample metadata: action=high_pass, parameter=12142.086319053868, signal_type=chord, waveform=sine, frequency=11990.40Hz
+Loss for sample 37 with action high_pass: MSE=0.001812 L1=0.014051
+Plotting chord sample for action low_pass, waveform: sine
+Sample metadata: action=low_pass, parameter=10453.093582714799, signal_type=chord, waveform=sine, frequency=3559.09Hz
+Loss for sample 79 with action low_pass: MSE=0.004215 L1=0.017185
+Plotting chord sample for action no_action, waveform: sine
+Sample metadata: action=no_action, parameter=None, signal_type=chord, waveform=sine, frequency=2811.12Hz
+Loss for sample 25 with action no_action: MSE=0.000009 L1=0.001550
+Plotting chord sample for action pitch_change, waveform: sine
+Sample metadata: action=pitch_change, parameter=-4, signal_type=chord, waveform=sine, frequency=3801.48Hz
+Loss for sample 26 with action pitch_change: MSE=0.009767 L1=0.042912
+Plotting chord sample for action gain, waveform: square
+Sample metadata: action=gain, parameter=-6.850031102090841, signal_type=chord, waveform=square, frequency=155.19Hz
+Loss for sample 76 with action gain: MSE=0.000924 L1=0.020799
+/Users/agmad/Documents/Resonance/src/resonance/evaluation/evaluator.py:99: RuntimeWarning: More than 20 figures have been opened. Figures created through the pyplot interface (`matplotlib.pyplot.figure`) are retained until explicitly closed and may consume too much memory. (To control this warning, see the rcParam `figure.max_open_warning`). Consider using `matplotlib.pyplot.close()`.
+  plt.figure(figsize=(12, 8))
+Plotting chord sample for action high_pass, waveform: square
+Sample metadata: action=high_pass, parameter=9143.32577678369, signal_type=chord, waveform=square, frequency=12164.15Hz
+Loss for sample 18 with action high_pass: MSE=0.001208 L1=0.009293
+Plotting chord sample for action low_pass, waveform: square
+Sample metadata: action=low_pass, parameter=8232.42425845762, signal_type=chord, waveform=square, frequency=12463.94Hz
+Loss for sample 7 with action low_pass: MSE=0.008951 L1=0.030760
+Plotting chord sample for action no_action, waveform: square
+Sample metadata: action=no_action, parameter=None, signal_type=chord, waveform=square, frequency=215.41Hz
+Loss for sample 11 with action no_action: MSE=0.000021 L1=0.003372
+Plotting chord sample for action pitch_change, waveform: square
+Sample metadata: action=pitch_change, parameter=-9, signal_type=chord, waveform=square, frequency=1437.63Hz
+Loss for sample 2 with action pitch_change: MSE=0.022221 L1=0.084811
+Plotting chord sample for action gain, waveform: sawtooth
+Sample metadata: action=gain, parameter=11.324149092825795, signal_type=chord, waveform=sawtooth, frequency=234.94Hz
+Loss for sample 22 with action gain: MSE=0.002524 L1=0.029548
+Plotting chord sample for action high_pass, waveform: sawtooth
+Sample metadata: action=high_pass, parameter=5536.41653713108, signal_type=chord, waveform=sawtooth, frequency=4858.90Hz
+Loss for sample 9 with action high_pass: MSE=0.050890 L1=0.065786
+Plotting chord sample for action low_pass, waveform: sawtooth
+Sample metadata: action=low_pass, parameter=6203.728375035261, signal_type=chord, waveform=sawtooth, frequency=9524.23Hz
+Loss for sample 61 with action low_pass: MSE=0.002459 L1=0.019332
+Plotting chord sample for action no_action, waveform: sawtooth
+Sample metadata: action=no_action, parameter=None, signal_type=chord, waveform=sawtooth, frequency=4229.84Hz
+Loss for sample 1 with action no_action: MSE=0.000008 L1=0.001652
+Plotting chord sample for action pitch_change, waveform: sawtooth
+Sample metadata: action=pitch_change, parameter=1, signal_type=chord, waveform=sawtooth, frequency=9104.86Hz
+Loss for sample 3 with action pitch_change: MSE=0.009401 L1=0.030698
+
+Exporting comparison audio samples to /Users/agmad/Documents/Resonance/build/audio_samples:
+  waveform sine sample 1: action=pitch_change, parameter=12
+  waveform sine sample 2: action=no_action, parameter=None
+  waveform sine sample 3: action=low_pass, parameter=5215.065327464878
+  waveform square sample 1: action=low_pass, parameter=9512.686362227538
+  waveform square sample 2: action=pitch_change, parameter=-11
+  waveform square sample 3: action=high_pass, parameter=12539.27663515265
+  waveform sawtooth sample 1: action=low_pass, parameter=3801.5049676704493
+  waveform sawtooth sample 2: action=no_action, parameter=None
+  waveform sawtooth sample 3: action=high_pass, parameter=5582.72998588848
+  chord sine sample 1: action=gain, parameter=2.646958840892414
+  chord sine sample 2: action=no_action, parameter=None
+  chord sine sample 3: action=pitch_change, parameter=-4
+  chord square sample 1: action=pitch_change, parameter=-9
+  chord square sample 2: action=low_pass, parameter=8232.42425845762
+  chord square sample 3: action=no_action, parameter=None
+  chord sawtooth sample 1: action=no_action, parameter=None
+  chord sawtooth sample 2: action=pitch_change, parameter=1
+  chord sawtooth sample 3: action=pitch_change, parameter=-8
+Exported 54 audio files.
+
+Per-action test losses:
+action          count  delta_mse  delta_l1   identity_mse  identity_l1
+gain            290   0.000781  0.011498      0.025544     0.073116
+high_pass       581   0.016676  0.034228      0.373939     0.190453
+low_pass        284   0.008876  0.027884      0.305020     0.151296
+no_action       302   0.000010  0.001772      0.000000     0.000000
+pitch_change    643   0.028205  0.063047      0.803283     0.364099
+
+Simple waveform loss breakdown:
+waveform  action          count  delta_mse  delta_l1   identity_mse  identity_l1
+sine      gain             44   0.000968  0.012788      0.022171     0.063993
+sine      high_pass        93   0.012083  0.027397      0.216527     0.136339
+sine      low_pass         56   0.006487  0.023816      0.130043     0.078147
+sine      no_action        40   0.000010  0.001768      0.000000     0.000000
+sine      pitch_change    110   0.027028  0.061601      0.674422     0.293365
+square    gain             53   0.000950  0.012756      0.029710     0.082178
+square    high_pass       111   0.010524  0.027334      0.236590     0.138816
+square    low_pass         35   0.012092  0.032116      0.238693     0.132509
+square    no_action        46   0.000011  0.001790      0.000000     0.000000
+square    pitch_change     99   0.041888  0.076581      0.854041     0.383548
+sawtooth  gain             49   0.000608  0.009691      0.020161     0.059936
+sawtooth  high_pass        93   0.013994  0.033658      0.364045     0.182856
+sawtooth  low_pass         41   0.008718  0.026081      0.335892     0.163975
+sawtooth  no_action        66   0.000010  0.001714      0.000000     0.000000
+sawtooth  pitch_change    113   0.034109  0.065357      0.743627     0.352933
+
+Chord loss breakdown:
+waveform  action          count  delta_mse  delta_l1   identity_mse  identity_l1
+sine      gain             44   0.000987  0.013171      0.023810     0.067373
+sine      high_pass        92   0.014786  0.032033      0.399447     0.192455
+sine      low_pass         52   0.005031  0.021174      0.179605     0.099799
+sine      no_action        50   0.000010  0.001770      0.000000     0.000000
+sine      pitch_change    105   0.019158  0.055385      0.890590     0.378249
+square    gain             53   0.000728  0.010918      0.029002     0.083482
+square    high_pass        97   0.015969  0.037284      0.410961     0.205924
+square    low_pass         44   0.005975  0.024607      0.355805     0.162234
+square    no_action        52   0.000011  0.001886      0.000000     0.000000
+square    pitch_change    111   0.024756  0.061647      0.975001     0.437365
+sawtooth  gain             47   0.000464  0.009843      0.027342     0.078865
+sawtooth  high_pass        95   0.033542  0.048533      0.635701     0.293463
+sawtooth  low_pass         56   0.015221  0.039433      0.575404     0.266128
+sawtooth  no_action        48   0.000009  0.001718      0.000000     0.000000
+sawtooth  pitch_change    105   0.022876  0.058457      0.685790     0.340280

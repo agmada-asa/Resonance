@@ -1,8 +1,6 @@
 import json
-from pathlib import Path
 
 import numpy as np
-import soundfile as sf
 from sklearn.model_selection import train_test_split
 
 from resonance.actions import AudioActionProcessor
@@ -10,9 +8,44 @@ from resonance.config import AudioConfig, DEFAULT_CONFIG, DEFAULT_PATHS, Project
 from resonance.features.spectrogram import SpectrogramTransformer
 
 
+DEFAULT_CHORD_INTERVALS = (0, 4, 7)
+
+
 class WaveformSynthesizer:
     def __init__(self, config: AudioConfig = DEFAULT_CONFIG):
         self.config = config
+
+    def _sample_count(self):
+        return int(self.config.sample_rate * self.config.duration)
+
+    def _time_axis(self):
+        return np.linspace(0, self.config.duration, self._sample_count(), endpoint=False)
+
+    def _frequency_ceiling(self):
+        return min(self.cqt_max_frequency(), self.config.sample_rate / 2)
+
+    def _validate_frequency(self, frequency, maximum_frequency=None):
+        if not np.isfinite(frequency) or frequency <= 0:
+            raise ValueError(f"Frequency must be positive and finite, got {frequency}.")
+
+        maximum_frequency = self.config.sample_rate / 2 if maximum_frequency is None else maximum_frequency
+        maximum_frequency = min(maximum_frequency, self.config.sample_rate / 2)
+        if frequency >= maximum_frequency:
+            raise ValueError(
+                f"Frequency {frequency:.2f} Hz must be below {maximum_frequency:.2f} Hz."
+            )
+
+    def _maximum_harmonic(self, frequency):
+        self._validate_frequency(frequency)
+        nyquist_ratio = (self.config.sample_rate / 2) / frequency
+        return max(1, int(np.ceil(nyquist_ratio) - 1))
+
+    @staticmethod
+    def _scale_to_peak(waveform, amplitude):
+        peak = np.max(np.abs(waveform))
+        if peak == 0:
+            raise ValueError("Cannot normalize a silent waveform.")
+        return waveform * (amplitude / peak)
 
     # SINE WAVES
     def generate_sin_wave(self, frequency, amplitude=0.5):
@@ -22,7 +55,8 @@ class WaveformSynthesizer:
         :param amplitude: Amplitude of the sine wave (0.0 to 1.0)
         :return: Numpy array containing the sine wave samples
         """
-        t = np.linspace(0, self.config.duration, int(self.config.sample_rate * self.config.duration), endpoint=False)
+        self._validate_frequency(frequency)
+        t = self._time_axis()
         return amplitude * np.sin(2 * np.pi * frequency * t)
 
     # SQUARE WAVES
@@ -33,8 +67,16 @@ class WaveformSynthesizer:
         :param amplitude: Amplitude of the square wave (0.0 to 1.0)
         :return: Numpy array containing the square wave samples
         """
-        t = np.linspace(0, self.config.duration, int(self.config.sample_rate * self.config.duration), endpoint=False)
-        return amplitude * np.sign(np.sin(2 * np.pi * frequency * t))
+        max_harmonic = self._maximum_harmonic(frequency)
+
+        t = self._time_axis()
+        waveform = np.zeros_like(t)
+
+        for n in range(1, max_harmonic + 1, 2):  # Only odd harmonics
+            waveform += (1 / n) * np.sin(2 * np.pi * n * frequency * t)
+
+        waveform *= 4 / np.pi
+        return self._scale_to_peak(waveform, amplitude)
 
     # SAWTOOTH WAVES
     def generate_sawtooth_wave(self, frequency, amplitude=0.5):
@@ -43,25 +85,48 @@ class WaveformSynthesizer:
         :param frequency: Frequency of the sawtooth wave in Hz
         :param amplitude: Amplitude of the sawtooth wave (0.0 to 1.0)
         :return: Numpy array containing the sawtooth wave samples"""
-        t = np.linspace(0, self.config.duration, int(self.config.sample_rate * self.config.duration), endpoint=False)
-        return amplitude * (2 * (t * frequency - np.floor(t * frequency + 0.5)))
+        max_harmonic = self._maximum_harmonic(frequency)
 
-    def create_audio_file(self, filepath, waveform_type, frequency, amplitude=0.5):
+        t = self._time_axis()
+        waveform = np.zeros_like(t)
+
+        for n in range(1, max_harmonic + 1):
+            waveform += ((-1) ** (n + 1) / n) * np.sin(2 * np.pi * n * frequency * t)
+
+        waveform *= 2 / np.pi
+        return self._scale_to_peak(waveform, amplitude)
+
+    def generate_chords(
+        self,
+        waveform_type,
+        root_frequency,
+        amplitude=0.5,
+        intervals=DEFAULT_CHORD_INTERVALS,
+    ):
         """
-        Create an audio file with the specified waveform type, frequency, and amplitude.
-        :param filepath: Path to save the audio file
+        Generate a chord by summing multiple waveforms of the same type at different frequencies.
         :param waveform_type: Type of waveform ('sine', 'square', 'sawtooth')
-        :param frequency: Frequency of the waveform in Hz
-        :param amplitude: Amplitude of the waveform (0.0 to 1.0)
-        :return: None"""
-        if waveform_type == 'sine':
-            sf.write(filepath, self.generate_sin_wave(frequency, amplitude), self.config.sample_rate)
-        elif waveform_type == 'square':
-            sf.write(filepath, self.generate_square_wave(frequency, amplitude), self.config.sample_rate)
-        elif waveform_type == 'sawtooth':
-            sf.write(filepath, self.generate_sawtooth_wave(frequency, amplitude), self.config.sample_rate)
-        else:
-            raise ValueError("Unsupported waveform type. Use 'sine', 'square', or 'sawtooth'.")
+        :param root_frequency: Root frequency of the chord in Hz
+        :param amplitude: Amplitude of the chord (0.0 to 1.0)
+        :param intervals: List of intervals in semitones to generate the chord
+        :return: Numpy array containing the chord samples
+        """
+        intervals = tuple(intervals)
+        if not intervals:
+            raise ValueError("Chord intervals must contain at least one interval.")
+
+        ceiling = self._frequency_ceiling()
+        frequencies = [root_frequency * (2 ** (interval / 12)) for interval in intervals]
+        for frequency in frequencies:
+            self._validate_frequency(frequency, maximum_frequency=ceiling)
+
+        chord = np.zeros(self._sample_count())
+
+        for interval in intervals:
+            frequency = root_frequency * (2 ** (interval / 12))
+            chord += self.generate_waveform(waveform_type, frequency, amplitude / len(intervals))
+
+        return chord
 
     def generate_waveform(self, waveform_type, frequency, amplitude):
         if waveform_type == 'sine':
@@ -76,14 +141,18 @@ class WaveformSynthesizer:
     def cqt_max_frequency(self):
         return self.config.fmin * 2 ** ((self.config.n_bins - 1) / self.config.bins_per_octave)
 
-    def sample_frequency_for_action(self, rng, action, parameter):
-        min_frequency = self.config.fmin
-        max_frequency = min(self.cqt_max_frequency(), self.config.sample_rate / 2)
+    def sample_frequency_for_action(self, rng, action, parameter, intervals=None):
+        intervals = (0,) if intervals is None else tuple(intervals)
+
+        interval_factors = [2 ** (interval / 12) for interval in intervals]
+        transformed_factors = list(interval_factors)
 
         if action == 'pitch_change':
             pitch_factor = 2 ** (parameter / 12)
-            min_frequency = max(min_frequency, self.config.fmin / pitch_factor)
-            max_frequency = min(max_frequency, self.cqt_max_frequency() / pitch_factor, (self.config.sample_rate / 2) / pitch_factor)
+            transformed_factors.extend(interval_factor * pitch_factor for interval_factor in interval_factors)
+
+        min_frequency = self.config.fmin / min(transformed_factors)
+        max_frequency = self._frequency_ceiling() / max(transformed_factors)
 
         if min_frequency >= max_frequency:
             raise ValueError(
@@ -91,30 +160,6 @@ class WaveformSynthesizer:
             )
 
         return rng.uniform(min_frequency, max_frequency)
-
-    def generate_data(self):
-        """
-        Generate synthetic audio data for training a model
-        Types: sine wave, square wave, sawtooth wave
-        # Frequencies: Frequencies from 20Hz to 20kHz
-        Duration: 2 seconds
-        Amplitude: 0.1 - 1.0
-        Save the generated audio files in a directory structure based on type, frequency and amplitude
-        :return: None
-        """
-
-        # Generate samples
-        waveform_types = ['sine', 'square', 'sawtooth']
-        frequencies = [262, 277, 294, 311, 330, 349, 370, 392, 415, 440, 466, 494]  # Example frequencies (C4 to B4)
-        amplitudes = [0.1, 0.3, 0.5, 0.7, 1.0]  # Example amplitudes
-
-        for waveform_type in waveform_types:
-            for frequency in frequencies:
-                for amplitude in amplitudes:
-                    filename = Path(f"../data/{waveform_type}/{frequency}Hz/{amplitude}amp.wav")
-                    filename.parent.mkdir(parents=True, exist_ok=True)
-                    self.create_audio_file(filename, waveform_type, frequency, amplitude)
-                    print(f"Generated {filename}")
 
 
 class SyntheticTrainingDataGenerator:
@@ -152,7 +197,8 @@ class SyntheticTrainingDataGenerator:
         amplitude,
         action,
         parameter,
-        seed,
+        is_chord=False,
+        seed=None,
     ):
         return {
             'id': index,
@@ -162,6 +208,7 @@ class SyntheticTrainingDataGenerator:
             'amplitude': amplitude,
             'action': action,
             'parameter': parameter,
+            'is_chord': is_chord,
             'sample_rate': self.config.sample_rate,
             'duration': self.config.duration,
             'hop_length': self.config.hop_length,
@@ -216,31 +263,76 @@ class SyntheticTrainingDataGenerator:
                     frequency = self.waveform_synthesizer.sample_frequency_for_action(rng, action, parameter)
 
                     audio = self.waveform_synthesizer.generate_waveform(waveform_type, frequency, amplitude)
+
+                    # Generate a frequency for the chord based on the action and parameter
+                    chord_frequency = self.waveform_synthesizer.sample_frequency_for_action(
+                        rng,
+                        action,
+                        parameter,
+                        intervals=DEFAULT_CHORD_INTERVALS,
+                    )
+
+                    # Generate a set of chords for the given waveform type and frequency
+                    chord = self.waveform_synthesizer.generate_chords(
+                        waveform_type,
+                        chord_frequency,
+                        amplitude,
+                        intervals=DEFAULT_CHORD_INTERVALS,
+                    )
+
                     spectogram = self.spectrogram_transformer.audio_to_cqt(audio)
+                    chord_spectrogram = self.spectrogram_transformer.audio_to_cqt(chord)
 
                     # Apply the action to the audio and get the action vector and the modified audio spectrogram
                     pitch_shifted_frequency = None
+                    pitch_shifted_chord_frequency = None
                     if action == 'pitch_change':
                         pitch_factor = 2 ** (parameter / 12)
                         pitch_shifted_frequency = frequency * pitch_factor
+                        pitch_shifted_chord_frequency = chord_frequency * pitch_factor
 
                     modified_audio, action_vector = self.action_processor.apply_action(audio, action, parameter)
+                    modified_chord_audio, _ = self.action_processor.apply_action(chord, action, parameter)
+
                     modified_spectrogram = self.spectrogram_transformer.audio_to_cqt(modified_audio)
+                    modified_chord_spectrogram = self.spectrogram_transformer.audio_to_cqt(modified_chord_audio)
 
                     # Append the input spectrogram, output spectrogram, action vector, and metadata to the respective lists
                     input_spectrograms.append(spectogram)
                     output_spectrograms.append(modified_spectrogram)
                     action_vectors.append(action_vector)
+
+                    # Do the same for the chord spectrograms
+                    input_spectrograms.append(chord_spectrogram)
+                    output_spectrograms.append(modified_chord_spectrogram)
+                    action_vectors.append(action_vector)
+
+                    # Append metadata for both the single waveform and the chord
                     metadata.append(
                         self._metadata_for_sample(
-                            index,
+                            index * 2,
                             waveform_type,
                             frequency,
                             pitch_shifted_frequency,
                             amplitude,
                             action,
                             parameter,
-                            seed,
+                            is_chord=False,
+                            seed=seed,
+                        )
+                    )
+
+                    metadata.append(
+                        self._metadata_for_sample(
+                            index * 2 + 1,
+                            waveform_type,
+                            chord_frequency,
+                            pitch_shifted_chord_frequency,
+                            amplitude,
+                            action,
+                            parameter,
+                            is_chord=True,
+                            seed=seed,
                         )
                     )
 
@@ -296,26 +388,21 @@ def generate_sawtooth_wave(frequency, amplitude=0.5):
     return DEFAULT_WAVEFORM_SYNTHESIZER.generate_sawtooth_wave(frequency, amplitude)
 
 
-def create_audio_file(filepath, waveform_type, frequency, amplitude=0.5):
-    return DEFAULT_WAVEFORM_SYNTHESIZER.create_audio_file(filepath, waveform_type, frequency, amplitude)
-
-
 def generate_waveform(waveform_type, frequency, amplitude):
     return DEFAULT_WAVEFORM_SYNTHESIZER.generate_waveform(waveform_type, frequency, amplitude)
+
+
+def generate_chords(waveform_type, root_frequency, amplitude=0.5, intervals=DEFAULT_CHORD_INTERVALS):
+    return DEFAULT_WAVEFORM_SYNTHESIZER.generate_chords(waveform_type, root_frequency, amplitude, intervals)
 
 
 def cqt_max_frequency():
     return DEFAULT_WAVEFORM_SYNTHESIZER.cqt_max_frequency()
 
 
-def sample_frequency_for_action(rng, action, parameter):
-    return DEFAULT_WAVEFORM_SYNTHESIZER.sample_frequency_for_action(rng, action, parameter)
-
-
-def generate_data():
-    return DEFAULT_WAVEFORM_SYNTHESIZER.generate_data()
+def sample_frequency_for_action(rng, action, parameter, intervals=None):
+    return DEFAULT_WAVEFORM_SYNTHESIZER.sample_frequency_for_action(rng, action, parameter, intervals)
 
 
 def generate_training_data(seed=42, pitch_only=False):
     return DEFAULT_SYNTHETIC_DATA_GENERATOR.generate_training_data(seed=seed, pitch_only=pitch_only)
-

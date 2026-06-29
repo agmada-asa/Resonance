@@ -1,0 +1,20 @@
+Using device: mps
+
+Vector chaining comparison:
+case                                      chained_mse  vector_once_mse  vector/chained  vector_vs_chained
+sine_880_gain_up_then_pitch_down             0.057101         0.096639            1.69           0.050368
+square_chord_low_pass_then_gain_down         0.060026         0.142641            2.38           0.065430
+sine_660_pitch_round_trip_with_gain          0.081249         0.173900            2.14           0.171186
+sawtooth_chord_pitch_up_then_high_pass       0.109507         0.201053            1.84           0.144016
+sine_440_pitch_up_then_gain_down             0.117047         0.318946            2.72           0.155612
+sine_chord_gain_up_then_pitch_up             0.172205         0.390146            2.27           0.216582
+square_330_low_pass_then_pitch_up            0.240475         0.407244            1.69           0.320629
+sawtooth_330_high_pass_then_gain_up          0.199412         0.427768            2.15           0.135901
+square_220_gain_up_then_low_pass             0.108455         0.551294            5.08           0.463400
+sawtooth_180_pitch_down_then_low_pass        0.623570         0.736707            1.18           1.093765
+
+Average chained-input MSE: 0.176905
+Average vector-once MSE:   0.344634
+Average ratio:             1.95x
+
+Saved 10 plots to: /Users/agmad/Documents/Resonance/build/latent_space_vector_chaining_samples

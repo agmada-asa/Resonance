@@ -1,6 +1,6 @@
 # Phase 1
 
-Updated: 2026-06-26
+Updated: 2026-06-29
 
 ## Purpose
 
@@ -16,7 +16,7 @@ The current implementation trains a conditional spectrogram transition model on 
 predicted_target = input_spectrogram + predicted_delta
 ```
 
-This document records the current implementation before the planned `/src` refactor. After the refactor and test pass, use the later sections to capture the final architecture and test results.
+This document records the current refactored implementation, the latest 30-epoch full-action model run, and the current transition-evaluation results.
 
 ## Current Status
 
@@ -34,16 +34,16 @@ Completed:
 - Training scripts for full-action and pitch-only runs.
 - Evaluation helpers for plotting, per-action losses, and exported audio comparisons.
 - Saved datasets and checkpoints under `data/synthetic/v001/` and `build/`.
-- Full-action 75-epoch training and evaluation run recorded below.
+- Full-action 30-epoch training and evaluation run recorded below.
 - Experiment components refactored into a formal class system under `src/resonance/`.
+- Multi-action transition probes for model-input chaining and summed-vector one-shot inference.
 
 Still in progress:
 
-- Formal automated tests.
 - Clean command-line entry points.
-- Rollout evaluation across multiple predicted steps.
-- Machine-readable test-result logs or reports.
-- README update to reflect that implementation now exists.
+- Expanded automated test coverage beyond the current smoke/unit tests.
+- Native multi-action training data and model conditioning.
+- Machine-readable test-result reports beyond captured console logs.
 
 ## Implementation Snapshot
 
@@ -211,7 +211,7 @@ Current shared training setup:
 
 Epochs:
 
-- `experiments/train.py`: fixed at `75`
+- `experiments/train.py`: fixed at `30`
 - `experiments/train_pitch_only.py`: defaults to `50`, override with `NUM_EPOCHS`
 
 Training also reports:
@@ -255,19 +255,19 @@ Full-action dataset:
 
 | Split | Examples | Input shape | Action vector shape |
 | --- | ---: | --- | --- |
-| train | 8400 | `(8400, 113, 173)` | `(8400, 8)` |
-| val | 1050 | `(1050, 113, 173)` | `(1050, 8)` |
-| test | 1050 | `(1050, 113, 173)` | `(1050, 8)` |
+| train | 16800 | `(16800, 113, 173)` | `(16800, 8)` |
+| val | 2100 | `(2100, 113, 173)` | `(2100, 8)` |
+| test | 2100 | `(2100, 113, 173)` | `(2100, 8)` |
 
 Full-action test split by action:
 
 | Action | Test examples |
 | --- | ---: |
-| gain | 152 |
-| high_pass | 289 |
-| low_pass | 149 |
-| no_action | 138 |
-| pitch_change | 322 |
+| gain | 290 |
+| high_pass | 581 |
+| low_pass | 284 |
+| no_action | 302 |
+| pitch_change | 643 |
 
 Pitch-only dataset:
 
@@ -287,12 +287,16 @@ Current checkpoints:
 
 - `build/best_spectrogram_transition_model.pth`
 - `build/spectrogram_transition_model_1.pth`
+- `build/spectrogram_transition_model_old.pth`
 - `build/best_spectrogram_transition_model_pitch_only.pth`
 - `build/spectrogram_transition_model_pitch_only_1.pth`
 
 Recent evaluation exports:
 
-- `build/audio_samples/` contains 27 exported full-action audio comparison files from the latest evaluation run.
+- `build/audio_samples/` contains 54 exported full-action audio comparison files from the latest evaluation run.
+- `build/latent_space_transition_samples/` contains 10 chained-rollout comparison plots.
+- `build/latent_space_vector_chaining_samples/` contains 10 summed-vector one-shot comparison plots.
+- `build/logs/` contains the 2026-06-29 training and evaluation console logs.
 
 ## `/src` Architecture
 
@@ -323,6 +327,7 @@ src/resonance/
     __init__.py
     evaluator.py
     spectrogram_viewer.py
+    transition_evaluator.py
 ```
 
 Class owners:
@@ -339,16 +344,17 @@ Class owners:
 - `SpectrogramEvaluator` owns full-action plotting, per-action metrics, and audio comparison export.
 - `PitchOnlySpectrogramEvaluator` owns pitch-only evaluation and predicted-frequency export.
 - `SpectrogramViewer` owns the manual mel-spectrogram inspection workflow.
+- `LatentTransitionEvaluator` owns the current multi-action transition probes.
 
 Still to add later:
 
 - Stable command-line entry points outside the compatibility wrappers.
-- Rollout evaluation under `src/resonance/evaluation/rollout.py`.
+- Native multi-action dataset generation and model conditioning.
 - Formal package/dependency metadata.
 
 ## Test Results
 
-These are current experiment results from the `experiments/` implementation. They should be replaced or extended after the `/src` refactor with formal automated test output.
+These are current experiment results from the refactored `/src` implementation, run through the compatibility scripts in `experiments/`.
 
 ### Full-Action Training Run
 
@@ -361,31 +367,33 @@ Command:
 Environment:
 
 - Device: `mps`
-- Epochs: `75`
+- Epochs: `30`
 - Batch size: `32`
 - Learning rate: `1e-3`
 - Loss: MSE on predicted delta
-- Approximate training time: `58.7 minutes`
+- Approximate training time: `45.5 minutes`
+- Log: `build/logs/train_30_epoch_2026-06-29.log`
 
 Training summary:
 
 | Metric | Value |
 | --- | ---: |
-| Best validation delta loss | 0.0260 |
-| Best validation epoch | 56 |
-| Best validation target loss | 0.0260 |
-| Validation identity baseline | 0.6534 |
-| Final train delta loss | 0.0129 |
-| Final validation delta loss | 0.0280 |
-| Final validation target loss | 0.0280 |
-| Test delta loss | 0.0290 |
-| Test target loss | 0.0290 |
-| Test identity baseline | 0.6650 |
+| Best validation delta loss | 0.0123 |
+| Best validation epoch | 28 |
+| Best validation target loss | 0.0123 |
+| Validation identity baseline | 0.4041 |
+| Final train delta loss | 0.0139 |
+| Final validation delta loss | 0.0128 |
+| Final validation target loss | 0.0128 |
+| Test delta loss | 0.0146 |
+| Test target loss | 0.0146 |
+| Test identity baseline | 0.3942 |
 
 Interpretation:
 
 - The model is substantially better than the identity baseline on the full-action test split.
-- Validation performance bottoms out around epoch 56, then fluctuates slightly through epoch 75.
+- Validation performance kept improving past epoch 10 and reached its best point at epoch 28.
+- Validation loss is noisy, with occasional upward spikes, but the later-epoch plateau is clearly lower than the early run.
 - Final test target loss matches test delta loss because the target is reconstructed as `input + predicted_delta`.
 
 ### Full-Action Evaluation Run
@@ -400,38 +408,140 @@ Environment:
 
 - Device: `mps`
 - Checkpoint loaded by script: `build/spectrogram_transition_model_1.pth`
-- Audio exports: 27 files written under `build/audio_samples/`
+- Audio exports: 54 files written under `build/audio_samples/`
+- Log: `build/logs/eval_regular_30_epoch_2026-06-29.log`
 
 Per-action test losses:
 
 | Action | Count | Delta MSE | Delta L1 | Identity MSE | Identity L1 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gain | 152 | 0.000677 | 0.014228 | 0.050330 | 0.165055 |
-| high_pass | 289 | 0.041855 | 0.069105 | 1.730832 | 0.933648 |
-| low_pass | 149 | 0.024403 | 0.046477 | 0.345539 | 0.194024 |
-| no_action | 138 | 0.000007 | 0.002019 | 0.000000 | 0.000000 |
-| pitch_change | 322 | 0.045381 | 0.122087 | 0.431423 | 0.384009 |
+| gain | 290 | 0.000781 | 0.011498 | 0.025544 | 0.073116 |
+| high_pass | 581 | 0.016676 | 0.034228 | 0.373939 | 0.190453 |
+| low_pass | 284 | 0.008876 | 0.027884 | 0.305020 | 0.151296 |
+| no_action | 302 | 0.000010 | 0.001772 | 0.000000 | 0.000000 |
+| pitch_change | 643 | 0.028205 | 0.063047 | 0.803283 | 0.364099 |
 
 Representative plotted sample losses:
 
 | Action | Sample index | Waveform | Parameter | MSE | L1 |
 | --- | ---: | --- | --- | ---: | ---: |
-| gain | 6 | sine | 0.10908575289449196 | 0.000045 | 0.002883 |
-| high_pass | 1 | sawtooth | 3276.1890815923593 | 0.326493 | 0.320811 |
-| low_pass | 3 | sawtooth | 18276.52633182281 | 0.001353 | 0.010463 |
-| no_action | 4 | sawtooth | None | 0.000007 | 0.001843 |
-| pitch_change | 0 | square | -5 | 0.053765 | 0.157326 |
+| gain | 44 | sine | -6.676240747807732 | 0.002283 | 0.033379 |
+| high_pass | 16 | sine | 4275.492961159641 | 0.001049 | 0.007119 |
+| low_pass | 15 | sine | 5215.065327464878 | 0.000743 | 0.009491 |
+| no_action | 8 | sine | None | 0.000005 | 0.001076 |
+| pitch_change | 0 | sine | 12 | 0.033033 | 0.103153 |
 
 Notes:
 
 - `gain` and `no_action` are currently the easiest actions.
-- `high_pass` and `pitch_change` are still the hardest actions by delta MSE.
-- The high-pass identity baseline is very high, so even the comparatively larger high-pass model error is still a large improvement over doing nothing.
-- Exported audio samples cover sine, square, and sawtooth examples across several action types.
+- `pitch_change` remains the hardest action by delta MSE, but it improved substantially from the previous 10-epoch run.
+- `high_pass` is still harder than gain/no-op/low-pass, but the 30-epoch model reduced its average test delta MSE below 0.02.
+- Exported audio samples cover waveform and chord examples for sine, square, and sawtooth inputs.
+
+### Multi-Action Transition Probes
+
+The model is still trained on single-action examples. These probes evaluate whether repeated model-input chaining or summed-vector one-shot inference is more useful for multi-action sequences.
+
+Chained rollout command:
+
+```text
+PYTHONPATH=src .venv/bin/python experiments/test_model_latent_space.py
+```
+
+Vector-once command:
+
+```text
+PYTHONPATH=src .venv/bin/python experiments/test_model_vector_chaining.py
+```
+
+Logs:
+
+- `build/logs/eval_latent_rollout_30_epoch_2026-06-29.log`
+- `build/logs/eval_vector_chaining_30_epoch_2026-06-29.log`
+
+Chained rollout losses:
+
+| Case | Loss |
+| --- | ---: |
+| sine_880_gain_up_then_pitch_down | 0.057101 |
+| square_chord_low_pass_then_gain_down | 0.060026 |
+| sine_660_pitch_round_trip_with_gain | 0.081249 |
+| square_220_gain_up_then_low_pass | 0.108455 |
+| sawtooth_chord_pitch_up_then_high_pass | 0.109507 |
+| sine_440_pitch_up_then_gain_down | 0.117047 |
+| sine_chord_gain_up_then_pitch_up | 0.172205 |
+| sawtooth_330_high_pass_then_gain_up | 0.199412 |
+| square_330_low_pass_then_pitch_up | 0.240475 |
+| sawtooth_180_pitch_down_then_low_pass | 0.623570 |
+
+Vector-once comparison:
+
+| Metric | Value |
+| --- | ---: |
+| Average chained-input MSE | 0.176905 |
+| Average vector-once MSE | 0.344634 |
+| Average vector/chained ratio | 1.95x |
+
+Per-case vector-once comparison:
+
+| Case | Chained MSE | Vector-once MSE | Ratio |
+| --- | ---: | ---: | ---: |
+| sine_880_gain_up_then_pitch_down | 0.057101 | 0.096639 | 1.69x |
+| square_chord_low_pass_then_gain_down | 0.060026 | 0.142641 | 2.38x |
+| sine_660_pitch_round_trip_with_gain | 0.081249 | 0.173900 | 2.14x |
+| sawtooth_chord_pitch_up_then_high_pass | 0.109507 | 0.201053 | 1.84x |
+| sine_440_pitch_up_then_gain_down | 0.117047 | 0.318946 | 2.72x |
+| sine_chord_gain_up_then_pitch_up | 0.172205 | 0.390146 | 2.27x |
+| square_330_low_pass_then_pitch_up | 0.240475 | 0.407244 | 1.69x |
+| sawtooth_330_high_pass_then_gain_up | 0.199412 | 0.427768 | 2.15x |
+| square_220_gain_up_then_low_pass | 0.108455 | 0.551294 | 5.08x |
+| sawtooth_180_pitch_down_then_low_pass | 0.623570 | 0.736707 | 1.18x |
+
+Interpretation:
+
+- Chaining model inputs is more accurate by MSE on every current probe case.
+- Summed-vector one-shot inference can visually preserve sharper spectrogram detail because it avoids repeated model-output smoothing, but it is out of distribution for the current single-action one-hot training setup.
+- Proper multi-action training should preserve ordered action slots or encode an action sequence into a fixed conditioning embedding, rather than summing single-action one-hot vectors and hoping the existing model extrapolates.
+
+### Comparison To Earlier Runs
+
+Direct 10-epoch predecessor run:
+
+| Metric | 10 epochs | 30 epochs |
+| --- | ---: | ---: |
+| Final test delta loss | 0.0204 | 0.0146 |
+| gain delta MSE | 0.002002 | 0.000781 |
+| high_pass delta MSE | 0.019183 | 0.016676 |
+| low_pass delta MSE | 0.011560 | 0.008876 |
+| no_action delta MSE | 0.000039 | 0.000010 |
+| pitch_change delta MSE | 0.043291 | 0.028205 |
+
+Multi-action comparison against the pre-30-epoch checkpoint used for earlier probes:
+
+| Metric | Earlier checkpoint | 30-epoch checkpoint |
+| --- | ---: | ---: |
+| Average chained rollout MSE | 0.358226 | 0.176905 |
+| Average vector-once MSE | 0.654557 | 0.344634 |
+| Vector/chained ratio | 1.83x | 1.95x |
+
+Older saved artifact comparison, using `build/spectrogram_transition_model_old.pth`:
+
+| Metric | Old artifact | 30-epoch checkpoint |
+| --- | ---: | ---: |
+| Total test delta loss | 0.291647 | 0.0146 |
+| gain delta MSE | 0.050254 | 0.000781 |
+| high_pass delta MSE | 0.736598 | 0.016676 |
+| low_pass delta MSE | 0.173683 | 0.008876 |
+| no_action delta MSE | 0.000017 | 0.000010 |
+| pitch_change delta MSE | 0.187543 | 0.028205 |
+| Average chained rollout MSE | 0.505189 | 0.176905 |
+| Average vector-once MSE | 0.954446 | 0.344634 |
+
+This comparison is less direct than the 10-epoch comparison because the old artifact predates the current training state, but it is useful as a saved-checkpoint regression reference.
 
 ### Automated Tests
 
-No formal automated test suite has been run yet.
+The current formal test suite is `unittest`-based.
 
 Smoke checks run after the `/src` refactor:
 
@@ -442,12 +552,17 @@ Smoke checks run after the `/src` refactor:
 | 2026-06-26 | import `experiments.*` wrappers | Pass | Checked old action/train/test imports still resolve |
 | 2026-06-26 | U-Net dummy forward pass | Pass | Output shape `(2, 1, 113, 173)` |
 | 2026-06-26 | dataset loader smoke check | Pass | Loaded 1050 test examples with shape `(1, 113, 173)` |
+| 2026-06-29 | `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests` | Pass | Ran 8 tests in 0.489s |
+| 2026-06-29 | `PYTHONPATH=src .venv/bin/python -m pytest` | Blocked | `pytest` is not installed in the venv |
 
 ## Next Checkpoint
 
 Before calling Phase 1 complete:
 
 - Add dependency and environment documentation.
-- Add tests around action encoding, waveform generation, spectrogram shape, dataset loading, and model forward-pass shape.
-- Add non-interactive evaluation commands suitable for CI.
-- Record fresh test output in this document.
+- Add `pytest` or standardize explicitly on `unittest` in the development setup.
+- Add tests around action encoding, spectrogram shape, dataset loading, model forward-pass shape, and transition-evaluator output shape.
+- Add non-interactive evaluation commands that write structured JSON/CSV summaries for CI and comparison tracking.
+- Train a native multi-action model with fixed ordered action slots, for example four 8-value action slots padded with `no_action`.
+- Compare fixed-slot multi-action training against a sequence encoder that maps variable-length action lists into a fixed conditioning embedding.
+- Add side-by-side audio and spectrogram review for chained rollout, vector-once, and native multi-action inference.
