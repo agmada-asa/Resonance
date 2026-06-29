@@ -1,0 +1,16 @@
+Using device: mps
+
+Latent transition composition results:
+case                                      signal    waveform   loss
+sine_880_gain_up_then_pitch_down          waveform  sine      0.057101
+square_chord_low_pass_then_gain_down      chord     square    0.060026
+sine_660_pitch_round_trip_with_gain       waveform  sine      0.081249
+square_220_gain_up_then_low_pass          waveform  square    0.108455
+sawtooth_chord_pitch_up_then_high_pass    chord     sawtooth  0.109507
+sine_440_pitch_up_then_gain_down          waveform  sine      0.117047
+sine_chord_gain_up_then_pitch_up          chord     sine      0.172205
+sawtooth_330_high_pass_then_gain_up       waveform  sawtooth  0.199412
+square_330_low_pass_then_pitch_up         waveform  square    0.240475
+sawtooth_180_pitch_down_then_low_pass     waveform  sawtooth  0.623570
+
+Saved 10 plots to: /Users/agmad/Documents/Resonance/build/latent_space_transition_samples

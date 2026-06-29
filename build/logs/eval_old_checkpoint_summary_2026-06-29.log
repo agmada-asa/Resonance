@@ -1,0 +1,73 @@
+Using device: mps
+
+Old checkpoint total test losses: delta=0.291647 target=0.291647 identity=0.394192
+
+Per-action test losses:
+action          count  delta_mse  delta_l1   identity_mse  identity_l1
+gain            290   0.050254  0.186545      0.025544     0.073116
+high_pass       581   0.736598  0.784545      0.373939     0.190453
+low_pass        284   0.173683  0.296107      0.305020     0.151296
+no_action       302   0.000017  0.003122      0.000000     0.000000
+pitch_change    643   0.187543  0.345059      0.803283     0.364099
+
+Simple waveform loss breakdown:
+waveform  action          count  delta_mse  delta_l1   identity_mse  identity_l1
+sine      gain             44   0.048508  0.183146      0.022171     0.063993
+sine      high_pass        93   0.729888  0.793161      0.216527     0.136339
+sine      low_pass         56   0.155513  0.274122      0.130043     0.078147
+sine      no_action        40   0.000016  0.003078      0.000000     0.000000
+sine      pitch_change    110   0.207309  0.368135      0.674422     0.293365
+square    gain             53   0.058068  0.206341      0.029710     0.082178
+square    high_pass       111   0.747366  0.794232      0.236590     0.138816
+square    low_pass         35   0.180590  0.313457      0.238693     0.132509
+square    no_action        46   0.000015  0.003061      0.000000     0.000000
+square    pitch_change     99   0.212457  0.368265      0.854041     0.383548
+sawtooth  gain             49   0.049376  0.186935      0.020161     0.059936
+sawtooth  high_pass        93   0.763907  0.808039      0.364045     0.182856
+sawtooth  low_pass         41   0.231705  0.361673      0.335892     0.163975
+sawtooth  no_action        66   0.000016  0.003142      0.000000     0.000000
+sawtooth  pitch_change    113   0.194043  0.352479      0.743627     0.352933
+
+Chord loss breakdown:
+waveform  action          count  delta_mse  delta_l1   identity_mse  identity_l1
+sine      gain             44   0.055635  0.195989      0.023810     0.067373
+sine      high_pass        92   0.737406  0.775312      0.399447     0.192455
+sine      low_pass         52   0.138573  0.265489      0.179605     0.099799
+sine      no_action        50   0.000015  0.003013      0.000000     0.000000
+sine      pitch_change    105   0.188219  0.346511      0.890590     0.378249
+square    gain             53   0.050155  0.185734      0.029002     0.083482
+square    high_pass        97   0.759636  0.789398      0.410961     0.205924
+square    low_pass         44   0.168706  0.287923      0.355805     0.162234
+square    no_action        52   0.000016  0.003069      0.000000     0.000000
+square    pitch_change    111   0.173950  0.326200      0.975001     0.437365
+sawtooth  gain             47   0.039063  0.159068      0.027342     0.078865
+sawtooth  high_pass        95   0.679549  0.745778      0.635701     0.293463
+sawtooth  low_pass         56   0.181566  0.294106      0.575404     0.266128
+sawtooth  no_action        48   0.000021  0.003360      0.000000     0.000000
+sawtooth  pitch_change    105   0.150042  0.309503      0.685790     0.340280
+
+Old checkpoint rollout losses:
+square_chord_low_pass_then_gain_down      0.226010
+sine_660_pitch_round_trip_with_gain       0.302319
+square_220_gain_up_then_low_pass          0.340721
+sine_440_pitch_up_then_gain_down          0.354880
+sine_880_gain_up_then_pitch_down          0.371899
+sine_chord_gain_up_then_pitch_up          0.433737
+square_330_low_pass_then_pitch_up         0.442885
+sawtooth_180_pitch_down_then_low_pass     0.719265
+sawtooth_chord_pitch_up_then_high_pass    0.924349
+sawtooth_330_high_pass_then_gain_up       0.935825
+Average rollout MSE: 0.505189
+
+Old checkpoint vector-once losses:
+sine_660_pitch_round_trip_with_gain       0.053450
+sine_440_pitch_up_then_gain_down          0.295029
+sawtooth_330_high_pass_then_gain_up       0.350002
+sine_880_gain_up_then_pitch_down          0.377294
+sine_chord_gain_up_then_pitch_up          0.422692
+square_220_gain_up_then_low_pass          0.569506
+square_chord_low_pass_then_gain_down      0.798259
+sawtooth_180_pitch_down_then_low_pass     0.905484
+square_330_low_pass_then_pitch_up         2.850998
+sawtooth_chord_pitch_up_then_high_pass    2.921742
+Average vector-once MSE: 0.954446
