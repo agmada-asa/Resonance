@@ -43,6 +43,31 @@ class WaveformSynthesizer:
         :return: Numpy array containing the sawtooth wave samples"""
         t = np.linspace(0, self.config.duration, int(self.config.sample_rate * self.config.duration), endpoint=False)
         return amplitude * (2 * (t * frequency - np.floor(t * frequency + 0.5)))
+    
+    def generate_chords(self, waveform_type, root_frequency, amplitude=0.5, intervals=(0, 4, 7)):
+        """
+        Generate a chord by summing multiple waveforms of the same type at different frequencies.
+        :param waveform_type: Type of waveform ('sine', 'square', 'sawtooth')
+        :param root_frequency: Root frequency of the chord in Hz
+        :param amplitude: Amplitude of the chord (0.0 to 1.0)
+        :param intervals: List of intervals in semitones to generate the chord
+        :return: Numpy array containing the chord samples
+        """
+        t = np.linspace(0, self.config.duration, int(self.config.sample_rate * self.config.duration), endpoint=False)
+        chord = np.zeros_like(t)
+        
+        for interval in intervals:
+            frequency = root_frequency * (2 ** (interval / 12))
+            if waveform_type == 'sine':
+                chord += self.generate_sin_wave(frequency, amplitude / len(intervals))
+            elif waveform_type == 'square':
+                chord += self.generate_square_wave(frequency, amplitude / len(intervals))
+            elif waveform_type == 'sawtooth':
+                chord += self.generate_sawtooth_wave(frequency, amplitude / len(intervals))
+            else:
+                raise ValueError("Unsupported waveform type. Use 'sine', 'square', or 'sawtooth'.")
+        
+        return chord
 
     def generate_waveform(self, waveform_type, frequency, amplitude):
         if waveform_type == 'sine':
@@ -109,7 +134,8 @@ class SyntheticTrainingDataGenerator:
         amplitude,
         action,
         parameter,
-        seed,
+        is_chord=False,
+        seed=None,
     ):
         return {
             'id': index,
@@ -119,6 +145,7 @@ class SyntheticTrainingDataGenerator:
             'amplitude': amplitude,
             'action': action,
             'parameter': parameter,
+            'is_chord': is_chord,
             'sample_rate': self.config.sample_rate,
             'duration': self.config.duration,
             'hop_length': self.config.hop_length,
@@ -173,7 +200,12 @@ class SyntheticTrainingDataGenerator:
                     frequency = self.waveform_synthesizer.sample_frequency_for_action(rng, action, parameter)
 
                     audio = self.waveform_synthesizer.generate_waveform(waveform_type, frequency, amplitude)
+
+                    # Generate a set of chords for the given waveform type and frequency
+                    chord = self.waveform_synthesizer.generate_chords(waveform_type, frequency, amplitude)
+
                     spectogram = self.spectrogram_transformer.audio_to_cqt(audio)
+                    chord_spectrogram = self.spectrogram_transformer.audio_to_cqt(chord)
 
                     # Apply the action to the audio and get the action vector and the modified audio spectrogram
                     pitch_shifted_frequency = None
@@ -182,22 +214,47 @@ class SyntheticTrainingDataGenerator:
                         pitch_shifted_frequency = frequency * pitch_factor
 
                     modified_audio, action_vector = self.action_processor.apply_action(audio, action, parameter)
+                    modified_chord_audio, _ = self.action_processor.apply_action(chord, action, parameter)
+
                     modified_spectrogram = self.spectrogram_transformer.audio_to_cqt(modified_audio)
+                    modified_chord_spectrogram = self.spectrogram_transformer.audio_to_cqt(modified_chord_audio)
 
                     # Append the input spectrogram, output spectrogram, action vector, and metadata to the respective lists
                     input_spectrograms.append(spectogram)
                     output_spectrograms.append(modified_spectrogram)
                     action_vectors.append(action_vector)
+
+                    # Do the same for the chord spectrograms
+                    input_spectrograms.append(chord_spectrogram)
+                    output_spectrograms.append(modified_chord_spectrogram)
+                    action_vectors.append(action_vector)
+
+                    # Append metadata for both the single waveform and the chord
                     metadata.append(
                         self._metadata_for_sample(
-                            index,
+                            index * 2,
                             waveform_type,
                             frequency,
                             pitch_shifted_frequency,
                             amplitude,
                             action,
                             parameter,
-                            seed,
+                            is_chord=False,
+                            seed=seed,
+                        )
+                    )
+
+                    metadata.append(
+                        self._metadata_for_sample(
+                            index * 2 + 1,
+                            waveform_type,
+                            frequency,
+                            pitch_shifted_frequency,
+                            amplitude,
+                            action,
+                            parameter,
+                            is_chord=True,
+                            seed=seed,
                         )
                     )
 
@@ -255,6 +312,10 @@ def generate_sawtooth_wave(frequency, amplitude=0.5):
 
 def generate_waveform(waveform_type, frequency, amplitude):
     return DEFAULT_WAVEFORM_SYNTHESIZER.generate_waveform(waveform_type, frequency, amplitude)
+
+
+def generate_chords(waveform_type, root_frequency, amplitude=0.5, intervals=(0, 4, 7)):
+    return DEFAULT_WAVEFORM_SYNTHESIZER.generate_chords(waveform_type, root_frequency, amplitude, intervals)
 
 
 def cqt_max_frequency():
