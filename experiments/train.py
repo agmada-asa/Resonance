@@ -25,7 +25,7 @@ BUILD_DIR = DEFAULT_PATHS.build_dir
 
 # Hyperparameters
 BATCH_SIZE = 32
-NUM_EPOCHS = 75
+NUM_EPOCHS = 30
 LEARNING_RATE = 1e-3
 
 
