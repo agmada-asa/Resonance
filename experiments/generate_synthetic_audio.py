@@ -32,7 +32,7 @@ from resonance.features.spectrogram import audio_to_cqt  # noqa: E402,F401
 
 
 def generate_training_data(seed=42):
-    return SyntheticTrainingDataGenerator().generate_training_data(seed=seed, pitch_only=False)
+    return SyntheticTrainingDataGenerator().generate_training_data(seed=seed)
 
 
 if __name__ == "__main__":
