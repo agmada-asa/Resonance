@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 
 
 class SyntheticSpectrogramDataset(Dataset):
-    def __init__(self, npz_path, mean, std):
+    def __init__(self, npz_path, mean, std, device=None):
         npz_path = Path(npz_path)
 
         # Load the dataset from the .npz file and normalize the spectrograms
@@ -24,6 +24,13 @@ class SyntheticSpectrogramDataset(Dataset):
         self.target_deltas = torch.from_numpy(target_deltas).unsqueeze(1)
         self.targets = torch.from_numpy(target_spectrograms).unsqueeze(1)
         self.action_vectors = torch.from_numpy(action_vectors)
+        
+        if device is not None:
+            self.inputs = self.inputs.to(device)
+            self.target_deltas = self.target_deltas.to(device)
+            self.targets = self.targets.to(device)
+            self.action_vectors = self.action_vectors.to(device)
+
         self.metadata = self._load_metadata(npz_path)
 
     @staticmethod
