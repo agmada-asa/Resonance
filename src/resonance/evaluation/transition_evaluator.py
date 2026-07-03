@@ -5,10 +5,13 @@ import torch
 
 from resonance.actions import apply_action
 from resonance.config import (
+    ACTION_DIMENSIONS,
+    ACTION_VECTOR_SIZE,
     BINS_PER_OCTAVE,
     DEFAULT_PATHS,
     FMIN,
     HOP_LENGTH,
+    MAX_ACTIONS,
     N_BINS,
     SAMPLE_RATE,
 )
@@ -177,8 +180,9 @@ def predict_action_sequence(model, input_spectrogram_normalized, action_vectors,
 
     with torch.no_grad():
         for action_vector in action_vectors:
+            model_action_vector = compose_action_vectors([action_vector])
             action_tensor = (
-                torch.tensor(action_vector, dtype=torch.float32)
+                torch.tensor(model_action_vector, dtype=torch.float32)
                 .unsqueeze(0)
                 .to(device)
             )
@@ -190,7 +194,23 @@ def predict_action_sequence(model, input_spectrogram_normalized, action_vectors,
 
 
 def compose_action_vectors(action_vectors):
-    return np.asarray(action_vectors, dtype=np.float32).sum(axis=0)
+    action_vectors = np.asarray(action_vectors, dtype=np.float32)
+    if action_vectors.size == 0:
+        return np.zeros(ACTION_VECTOR_SIZE, dtype=np.float32)
+    if action_vectors.ndim != 2 or action_vectors.shape[1] != ACTION_DIMENSIONS:
+        raise ValueError(
+            f"Expected action vectors with shape (N, {ACTION_DIMENSIONS}), "
+            f"got {action_vectors.shape}."
+        )
+    if action_vectors.shape[0] > MAX_ACTIONS:
+        raise ValueError(
+            f"At most {MAX_ACTIONS} actions can be composed, "
+            f"got {action_vectors.shape[0]}."
+        )
+
+    composed = np.zeros((MAX_ACTIONS, ACTION_DIMENSIONS), dtype=np.float32)
+    composed[: action_vectors.shape[0]] = action_vectors
+    return composed.reshape(ACTION_VECTOR_SIZE)
 
 
 def predict_composed_action(model, input_spectrogram_normalized, action_vector, device):
@@ -509,7 +529,7 @@ def plot_vector_chaining_sample(
     )
 
     plt.subplot(2, 3, 3)
-    plt.title("Summed Vector, One Run")
+    plt.title("Sequence Vector, One Run")
     plt.imshow(
         composed_final_spectrogram,
         aspect="auto",
@@ -571,7 +591,7 @@ def print_vector_chaining_results(results):
     print("\nVector chaining comparison:")
     print(
         "case                                      "
-        "chained_mse  vector_once_mse  vector/chained  vector_vs_chained"
+        "chained_mse  sequence_once_mse  sequence/chained  sequence_vs_chained"
     )
     for result in sorted(results, key=lambda item: item["composed_mse"]):
         ratio = result["composed_mse"] / max(result["chained_mse"], 1e-12)
@@ -587,6 +607,6 @@ def print_vector_chaining_results(results):
     composed_average = sum(result["composed_mse"] for result in results) / len(results)
     print(
         f"\nAverage chained-input MSE: {chained_average:.6f}\n"
-        f"Average vector-once MSE:   {composed_average:.6f}\n"
+        f"Average sequence-once MSE: {composed_average:.6f}\n"
         f"Average ratio:             {composed_average / max(chained_average, 1e-12):.2f}x"
     )
