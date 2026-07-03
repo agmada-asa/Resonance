@@ -2,7 +2,12 @@ import unittest
 
 import numpy as np
 
-from resonance.data.synthetic import DEFAULT_CHORD_INTERVALS, WaveformSynthesizer
+from resonance.config import ACTION_DIMENSIONS, ACTION_VECTOR_SIZE, MAX_ACTIONS
+from resonance.data.synthetic import (
+    DEFAULT_CHORD_INTERVALS,
+    SyntheticTrainingDataGenerator,
+    WaveformSynthesizer,
+)
 
 
 class WaveformSynthesizerTests(unittest.TestCase):
@@ -60,6 +65,52 @@ class WaveformSynthesizerTests(unittest.TestCase):
                 unsafe_root,
                 intervals=DEFAULT_CHORD_INTERVALS,
             )
+
+
+class SyntheticTrainingDataGeneratorTests(unittest.TestCase):
+    def setUp(self):
+        self.generator = SyntheticTrainingDataGenerator()
+
+    def test_action_sequence_is_flattened_and_zero_padded(self):
+        audio = np.ones(32, dtype=np.float32)
+        actions = [('gain', 6), ('gain', -3)]
+
+        modified_audio, action_vector = self.generator._apply_action_sequence(
+            audio,
+            actions,
+        )
+
+        self.assertEqual(action_vector.shape, (ACTION_VECTOR_SIZE,))
+        np.testing.assert_allclose(
+            action_vector[:ACTION_DIMENSIONS],
+            self.generator.action_processor.encode_action(*actions[0]),
+        )
+        np.testing.assert_allclose(
+            action_vector[ACTION_DIMENSIONS:2 * ACTION_DIMENSIONS],
+            self.generator.action_processor.encode_action(*actions[1]),
+        )
+        np.testing.assert_array_equal(action_vector[2 * ACTION_DIMENSIONS:], 0)
+        np.testing.assert_allclose(modified_audio, audio * 10 ** (3 / 20))
+
+    def test_empty_action_sequence_is_an_identity_sample(self):
+        audio = np.linspace(-1, 1, 32, dtype=np.float32)
+
+        modified_audio, action_vector = self.generator._apply_action_sequence(audio, [])
+
+        np.testing.assert_array_equal(modified_audio, audio)
+        np.testing.assert_array_equal(action_vector, 0)
+
+    def test_sampled_sequence_has_requested_length_and_required_action(self):
+        rng = np.random.default_rng(123)
+
+        actions = self.generator._sample_action_sequence(
+            rng,
+            num_actions=4,
+            required_action='high_pass',
+        )
+
+        self.assertEqual(len(actions), 4)
+        self.assertIn('high_pass', [action for action, _ in actions])
 
 
 if __name__ == '__main__':
