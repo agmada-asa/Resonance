@@ -2,7 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from resonance.config import DEFAULT_CONFIG
+from resonance.config import (
+    ACTION_DIMENSIONS,
+    ACTION_VECTOR_SIZE,
+    MAX_ACTIONS,
+    DEFAULT_CONFIG,
+)
 
 
 # Convolution Block for encoding
@@ -37,6 +42,11 @@ class UpBlock(nn.Module):
 class SpectrogramUNetModel(nn.Module):
     def __init__(self, action_vector_size, action_embedding_size=32, config=DEFAULT_CONFIG):
         super().__init__()
+        if action_vector_size != ACTION_VECTOR_SIZE:
+            raise ValueError(
+                f"Expected action_vector_size={ACTION_VECTOR_SIZE}, "
+                f"got {action_vector_size}."
+            )
         self.config = config
 
         # Encoder block 1: 1 -> 32
@@ -67,19 +77,35 @@ class SpectrogramUNetModel(nn.Module):
         # Output decoder block: 32 -> 1
         self.output = nn.Conv2d(32, 1, kernel_size=1)
 
+    @staticmethod
+    def _net_pitch_normalization(action_vector):
+        # Reshape the action vector to separate the individual actions
+        action_slots = action_vector.reshape(
+            action_vector.shape[0],
+            MAX_ACTIONS,
+            ACTION_DIMENSIONS,
+        )
+        # Extract the pitch change normalization values from the action slots
+        is_pitch_change = action_slots[:, :, 1]
+        pitch_normalization = action_slots[:, :, 5]
+
+        # Compute the net pitch normalization by summing the pitch changes across all action slots
+        return (is_pitch_change * pitch_normalization).sum(dim=1, keepdim=True)
+
     def forward(self, x, action_vector):
         # Get shape of input
         input_shape = x.shape[-2:]
-
-        # Pitch change action is index 2, normalized pitch parameter is index 6
-        is_pitch_change = action_vector[:, 2:3]
-        pitch_norm = action_vector[:, 6:7]
+        
+        # Calculate the net pitch normalization from the action vector
+        net_pitch_normalization = self._net_pitch_normalization(action_vector)
 
         # Calculate Y-axis (frequency) translation
         # pitch_norm * BINS_PER_OCTAVE gives the number of bins to shift
         # Grid range is [-1, 1], so distance between bins is 2 / (N_BINS - 1)
         # A negative ty shifts the image UP (higher frequencies) in grid_sample
-        ty = -pitch_norm * (2.0 * self.config.bins_per_octave / (self.config.n_bins - 1)) * is_pitch_change
+        ty = -net_pitch_normalization * (
+            2.0 * self.config.bins_per_octave / (self.config.n_bins - 1)
+        )
 
         theta = torch.zeros(x.size(0), 2, 3, device=x.device)
         theta[:, 0, 0] = 1.0
@@ -125,4 +151,3 @@ class SpectrogramUNetModel(nn.Module):
         predicted_delta = (x_aligned - x) + unet_refinement
 
         return predicted_delta
-

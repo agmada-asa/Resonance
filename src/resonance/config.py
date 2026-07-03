@@ -3,6 +3,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+MAX_ACTIONS = 4
+ACTION_DIMENSIONS = 7
+ACTION_VECTOR_SIZE = MAX_ACTIONS * ACTION_DIMENSIONS
+
 
 @dataclass(frozen=True)
 class AudioConfig:

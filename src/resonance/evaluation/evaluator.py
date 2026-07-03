@@ -96,7 +96,12 @@ class SpectrogramEvaluator:
             f"MSE={mse_loss:.6f} L1={l1_loss:.6f}"
         )
 
-        plt.figure(figsize=(12, 8))
+        fig = plt.figure(figsize=(12, 8))
+        if metadata:
+            actions = SpectrogramEvaluator._metadata_actions(metadata)
+            action_names = " -> ".join([a["action"] for a in actions])
+            fig.suptitle(action_names, fontsize=16)
+
         plt.subplot(2, 3, 1)
         plt.title("Input Spectrogram")
         plt.imshow(
@@ -161,7 +166,23 @@ class SpectrogramEvaluator:
         )
 
         plt.tight_layout()
-        plt.show()
+        
+        output_dir = self.paths.build_dir / "plots"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        if metadata:
+            signal_type = "chord" if metadata.get("is_chord", False) else "waveform"
+            actions = SpectrogramEvaluator._metadata_actions(metadata)
+            action_names = "_then_".join([a["action"] for a in actions])
+            waveform = metadata['waveform_type']
+            filename = f"sample_{sample_index}_{signal_type}_{waveform}_{action_names}.png"
+        else:
+            filename = f"sample_{sample_index}.png"
+            
+        save_path = output_dir / filename
+        plt.savefig(save_path)
+        print(f"Saved plot to {save_path}")
+        plt.close()
 
     def evaluate_losses_by_action(self, model, dataset, device, batch_size=None):
         if dataset.metadata is None:
@@ -378,11 +399,13 @@ class SpectrogramEvaluator:
         before_audio = generate_audio(
             metadata["waveform_type"], metadata["frequency"], metadata["amplitude"]
         )
-        target_after_audio, _ = self.action_processor.apply_action(
-            before_audio,
-            metadata["action"],
-            metadata["parameter"],
-        )
+        target_after_audio = before_audio
+        for action in self._metadata_actions(metadata):
+            target_after_audio, _ = self.action_processor.apply_action(
+                target_after_audio,
+                action["action"],
+                action["parameter"],
+            )
         return {
             "metadata": metadata,
             "predicted_cqt_db": predicted_cqt_db,
@@ -393,18 +416,44 @@ class SpectrogramEvaluator:
             },
         }
 
+    @staticmethod
+    def _metadata_actions(metadata):
+        actions = metadata.get("actions")
+        if actions is not None:
+            return actions or [{"action": "no_action", "parameter": None}]
+
+        parameter = metadata.get("parameter")
+        if isinstance(parameter, list):
+            if len(parameter) != 1:
+                raise ValueError(
+                    "Sequence metadata must include an 'actions' list."
+                )
+            parameter = parameter[0]
+        return [{"action": metadata["action"], "parameter": parameter}]
+
     def _format_audio_export(self, comparison, sample_number, sample_index):
         metadata = comparison["metadata"]
-        parameter = metadata["parameter"]
-        parameter_text = "None" if parameter is None else f"{parameter:.2f}"
+        actions = self._metadata_actions(metadata)
+        action_text = (
+            "_then_".join(action["action"] for action in actions) or "no_action"
+        )
+        parameter_text = (
+            "_".join(
+                "None"
+                if action["parameter"] is None
+                else f"{action['parameter']:.2f}"
+                for action in actions
+            )
+            or "None"
+        )
         file_stem = (
             f"{sample_number:02d}_idx{sample_index}_"
-            f"{metadata['action']}_{parameter_text}"
+            f"{action_text}_{parameter_text}"
         ).replace("+", "plus").replace("-", "minus")
         message = (
             f"  {'chord' if metadata.get('is_chord', False) else 'waveform'} "
             f"{metadata['waveform_type']} sample {sample_number}: "
-            f"action={metadata['action']}, parameter={parameter}"
+            f"action={metadata['action']}, parameter={metadata['parameter']}"
         )
         return file_stem, message
 
@@ -515,89 +564,45 @@ class SpectrogramEvaluator:
             test_filename=test_filename,
         )
 
-        # Find a sample index for each action type in the dataset
+        # Find a sample index for each action sequence in the dataset
         if dataset.metadata is None:
             raise ValueError("Test metadata file is required to pick samples by action.")
 
-        action_types = sorted({metadata["action"] for metadata in dataset.metadata})
+        action_sequences = sorted(
+            {
+                tuple(action["action"] for action in self._metadata_actions(metadata))
+                for metadata in dataset.metadata
+            }
+        )
         for signal_type, is_chord in SIGNAL_TYPES:
             for waveform_type in WAVEFORM_TYPES:
-                for action in action_types:
+                for action_seq in action_sequences:
                     sample_index = next(
                         (
                             i
                             for i, metadata in enumerate(dataset.metadata)
-                            if metadata["action"] == action
+                            if tuple(a["action"] for a in self._metadata_actions(metadata)) == action_seq
                             and metadata["waveform_type"] == waveform_type
                             and bool(metadata.get("is_chord", False)) == is_chord
                         ),
                         None,
                     )
                     if sample_index is not None:
+                        seq_str = " -> ".join(action_seq)
                         print(
-                            f"Plotting {signal_type[:-1]} sample for action "
-                            f"{action}, waveform: {waveform_type}"
+                            f"Plotting {signal_type[:-1]} sample for sequence "
+                            f"{seq_str}, waveform: {waveform_type}"
                         )
                         self.plot_sample(model, dataset, device, sample_index)
                     else:
+                        seq_str = " -> ".join(action_seq)
                         print(
-                            f"No {signal_type} samples found for action {action}, "
+                            f"No {signal_type} samples found for sequence {seq_str}, "
                             f"waveform: {waveform_type}"
                         )
 
         self.export_audio_comparison_samples(model, dataset, device, mean, std)
         self.evaluate_losses_by_action(model, dataset, device)
-
-
-class PitchOnlySpectrogramEvaluator(SpectrogramEvaluator):
-    audio_export_directory = "pitch_only_audio_samples"
-    audio_export_description = "pitch comparison"
-
-    def peak_normalize_audio(self, audio, target_peak=0.95):
-        return super().peak_normalize_audio(audio, target_peak)
-
-    def estimate_dominant_frequency_from_cqt(self, cqt_db):
-        bin_energy = cqt_db.mean(axis=1)
-        dominant_bin = int(np.argmax(bin_energy))
-        return self.config.fmin * 2 ** (dominant_bin / self.config.bins_per_octave)
-
-    def _format_audio_export(self, comparison, sample_number, sample_index):
-        metadata = comparison["metadata"]
-        predicted_frequency = self.estimate_dominant_frequency_from_cqt(
-            comparison["predicted_cqt_db"]
-        )
-        comparison["audio"]["predicted_pitch_resynth.wav"] = (
-            (
-                self.waveform_synthesizer.generate_chords
-                if metadata.get("is_chord", False)
-                else self.waveform_synthesizer.generate_waveform
-            )(
-                metadata["waveform_type"],
-                predicted_frequency,
-                metadata["amplitude"],
-            )
-        )
-        file_stem = (
-            f"{sample_number:02d}_idx{sample_index}_"
-            f"{metadata['parameter']:+d}st_"
-            f"{metadata['frequency']:.2f}hz"
-        ).replace("+", "plus").replace("-", "minus")
-        message = (
-            f"  {'chord' if metadata.get('is_chord', False) else 'waveform'} "
-            f"{metadata['waveform_type']} sample {sample_number}: "
-            f"{metadata['frequency']:.2f}Hz -> "
-            f"{metadata['pitch_shifted_frequency']:.2f}Hz "
-            f"({metadata['parameter']:+d} semitones), "
-            f"predicted peak {predicted_frequency:.2f}Hz"
-        )
-        return file_stem, message
-
-    def run(self):
-        return super().run(
-            checkpoint_name="spectrogram_transition_model_pitch_only_1.pth",
-            train_filename="train_pitch_only.npz",
-            test_filename="test_pitch_only.npz",
-        )
 
 
 DEFAULT_EVALUATOR = SpectrogramEvaluator()

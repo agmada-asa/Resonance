@@ -12,6 +12,11 @@ from resonance.evaluation.evaluator import (
     WAVEFORM_TYPES,
     SpectrogramEvaluator,
 )
+from resonance.evaluation.transition_evaluator import (
+    compose_action_vectors,
+    predict_action_sequence,
+)
+from resonance.config import ACTION_DIMENSIONS, ACTION_VECTOR_SIZE, MAX_ACTIONS
 
 
 class EvaluationDataset(Dataset):
@@ -113,6 +118,18 @@ class SpectrogramEvaluatorTests(unittest.TestCase):
                 self.assertIs(metadata["is_chord"], is_chord)
 
     def test_run_plots_every_action_waveform_and_signal_combination(self):
+        self.dataset.samples.append(self.dataset.samples[0])
+        self.dataset.metadata.append(
+            {
+                **self.dataset.metadata[0],
+                "action": "gain -> gain",
+                "parameter": [1.0, 2.0],
+                "actions": [
+                    {"action": "gain", "parameter": 1.0},
+                    {"action": "gain", "parameter": 2.0},
+                ],
+            }
+        )
         evaluator = RecordingEvaluator(self.dataset)
         with redirect_stdout(io.StringIO()):
             evaluator.run()
@@ -177,6 +194,104 @@ class SpectrogramEvaluatorTests(unittest.TestCase):
             comparison["audio"]["before.wav"],
             np.full(8, 2.0, dtype=np.float32),
         )
+
+    def test_audio_comparison_replays_every_action_in_sequence(self):
+        class ActionProcessor:
+            def __init__(self):
+                self.calls = []
+
+            def apply_action(self, audio, action, parameter):
+                self.calls.append((action, parameter))
+                return audio + parameter, np.zeros(ACTION_DIMENSIONS)
+
+        sample_index = 0
+        self.dataset.metadata[sample_index].update(
+            {
+                "action": "gain -> gain",
+                "parameter": [1.0, 2.0],
+                "actions": [
+                    {"action": "gain", "parameter": 1.0},
+                    {"action": "gain", "parameter": 2.0},
+                ],
+            }
+        )
+        processor = ActionProcessor()
+        evaluator = SpectrogramEvaluator(action_processor=processor)
+
+        with (
+            patch(
+                "resonance.evaluation.evaluator.librosa.db_to_amplitude",
+                side_effect=lambda value, ref: value,
+            ),
+            patch(
+                "resonance.evaluation.evaluator.librosa.griffinlim_cqt",
+                return_value=np.zeros(8, dtype=np.float32),
+            ),
+        ):
+            comparison = evaluator._prepare_audio_comparison(
+                ZeroModel(),
+                self.dataset,
+                torch.device("cpu"),
+                0.0,
+                1.0,
+                sample_index,
+                1,
+            )
+
+        self.assertEqual(processor.calls, [("gain", 1.0), ("gain", 2.0)])
+        np.testing.assert_allclose(
+            comparison["audio"]["target_after.wav"],
+            comparison["audio"]["before.wav"] + 3.0,
+        )
+
+
+class TransitionEvaluatorDimensionTests(unittest.TestCase):
+    def test_composed_actions_fill_ordered_slots_and_pad_remaining_slots(self):
+        first = np.arange(ACTION_DIMENSIONS, dtype=np.float32)
+        second = first + 10
+
+        composed = compose_action_vectors([first, second])
+
+        self.assertEqual(composed.shape, (ACTION_VECTOR_SIZE,))
+        slots = composed.reshape(MAX_ACTIONS, ACTION_DIMENSIONS)
+        np.testing.assert_array_equal(slots[0], first)
+        np.testing.assert_array_equal(slots[1], second)
+        np.testing.assert_array_equal(slots[2:], 0.0)
+
+    def test_empty_composed_action_is_a_zero_filled_model_vector(self):
+        composed = compose_action_vectors([])
+
+        self.assertEqual(composed.shape, (ACTION_VECTOR_SIZE,))
+        np.testing.assert_array_equal(composed, 0.0)
+
+    def test_chained_prediction_pads_each_action_to_model_vector_size(self):
+        class RecordingModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.action_vectors = []
+
+            def forward(self, spectrogram, action_vector):
+                self.action_vectors.append(action_vector.detach().cpu())
+                return torch.zeros_like(spectrogram)
+
+        model = RecordingModel()
+        actions = [
+            np.ones(ACTION_DIMENSIONS, dtype=np.float32),
+            np.full(ACTION_DIMENSIONS, 2.0, dtype=np.float32),
+        ]
+        predict_action_sequence(
+            model,
+            torch.zeros(1, 1, 2, 2),
+            actions,
+            torch.device("cpu"),
+        )
+
+        self.assertEqual(len(model.action_vectors), 2)
+        for expected, actual in zip(actions, model.action_vectors):
+            self.assertEqual(actual.shape, (1, ACTION_VECTOR_SIZE))
+            slots = actual.numpy().reshape(MAX_ACTIONS, ACTION_DIMENSIONS)
+            np.testing.assert_array_equal(slots[0], expected)
+            np.testing.assert_array_equal(slots[1:], 0.0)
 
 
 if __name__ == "__main__":
