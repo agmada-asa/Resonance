@@ -84,7 +84,7 @@ See [PHASE 1.md](PHASE%201.md) for the implementation notes, architecture, artif
 - `AudioActionProcessor`: action encoding and DSP transforms.
 - `SpectrogramTransformer`: mel and CQT feature extraction.
 - `WaveformSynthesizer`: synthetic waveform generation.
-- `SyntheticTrainingDataGenerator`: full-action and pitch-only dataset generation.
+- `SyntheticTrainingDataGenerator`: full-action dataset generation.
 - `SyntheticSpectrogramDataset`: `.npz` loading, normalization, targets, and metadata.
 - `SpectrogramUNetModel`: current transition model.
 - `SpectrogramTransitionTrainer`: dataloaders, training, evaluation, and checkpointing.
@@ -108,14 +108,6 @@ Evaluate the full-action model:
 
 ```bash
 .venv/bin/python experiments/test.py
-```
-
-Pitch-only variants:
-
-```bash
-.venv/bin/python experiments/generate_synthetic_audio_pitch_only.py
-.venv/bin/python experiments/train_pitch_only.py
-.venv/bin/python experiments/test_pitch_only.py
 ```
 
 ## Next Directions
