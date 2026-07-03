@@ -4,11 +4,20 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 
 from resonance.actions import AudioActionProcessor
-from resonance.config import AudioConfig, DEFAULT_CONFIG, DEFAULT_PATHS, ProjectPaths
+from resonance.config import (
+    ACTION_DIMENSIONS,
+    ACTION_VECTOR_SIZE,
+    MAX_ACTIONS,
+    AudioConfig,
+    DEFAULT_CONFIG,
+    DEFAULT_PATHS,
+    ProjectPaths,
+)
 from resonance.features.spectrogram import SpectrogramTransformer
 
 
 DEFAULT_CHORD_INTERVALS = (0, 4, 7)
+ACTION_TYPES = ('gain', 'pitch_change', 'low_pass', 'high_pass')
 
 
 class WaveformSynthesizer:
@@ -142,21 +151,33 @@ class WaveformSynthesizer:
         return self.config.fmin * 2 ** ((self.config.n_bins - 1) / self.config.bins_per_octave)
 
     def sample_frequency_for_action(self, rng, action, parameter, intervals=None):
+        return self.sample_frequency_for_actions(
+            rng,
+            [(action, parameter)],
+            intervals=intervals,
+        )
+
+    def sample_frequency_for_actions(self, rng, actions, intervals=None):
         intervals = (0,) if intervals is None else tuple(intervals)
 
         interval_factors = [2 ** (interval / 12) for interval in intervals]
         transformed_factors = list(interval_factors)
+        cumulative_pitch_factor = 1.0
 
-        if action == 'pitch_change':
-            pitch_factor = 2 ** (parameter / 12)
-            transformed_factors.extend(interval_factor * pitch_factor for interval_factor in interval_factors)
+        # Apply pitch change actions to the cumulative pitch factor and transform the interval factors accordingly
+        for action, parameter in actions:
+            if action == 'pitch_change':
+                cumulative_pitch_factor *= 2 ** (parameter / 12)
+                transformed_factors.extend(
+                    interval_factor * cumulative_pitch_factor for interval_factor in interval_factors
+                )
 
         min_frequency = self.config.fmin / min(transformed_factors)
         max_frequency = self._frequency_ceiling() / max(transformed_factors)
 
         if min_frequency >= max_frequency:
             raise ValueError(
-                f"No valid frequency range for action={action}, parameter={parameter}."
+                f"No valid frequency range for action sequence {actions}."
             )
 
         return rng.uniform(min_frequency, max_frequency)
@@ -188,6 +209,43 @@ class SyntheticTrainingDataGenerator:
         else:
             return None  # No parameter needed for 'no_action'
 
+    def _sample_action_sequence(self, rng, num_actions, required_action=None):
+        if not 0 <= num_actions <= MAX_ACTIONS:
+            raise ValueError(f"num_actions must be between 0 and {MAX_ACTIONS}.")
+        if num_actions == 0:
+            return []
+
+        action_names = []
+        if required_action is not None:
+            if required_action not in ACTION_TYPES:
+                raise ValueError(f"Unsupported required action: {required_action}.")
+            action_names.append(required_action)
+
+        remaining = num_actions - len(action_names)
+        action_names.extend(rng.choice(ACTION_TYPES, size=remaining).tolist())
+        rng.shuffle(action_names)
+        return [
+            (action, self._sample_parameter(rng, action))
+            for action in action_names
+        ]
+
+    def _apply_action_sequence(self, audio, actions):
+        # Create an empty array to hold the encoded action vectors
+        encoded = np.zeros((MAX_ACTIONS, ACTION_DIMENSIONS), dtype=np.float32)
+        modified_audio = audio
+
+        # Apply each action in the sequence to the audio and encode the action vector
+        for slot, (action, parameter) in enumerate(actions):
+            modified_audio, action_vector = self.action_processor.apply_action(
+                modified_audio,
+                action,
+                parameter,
+            )
+            encoded[slot] = action_vector
+
+        # Flatten the encoded action vectors into a single 1D array with the correct dimensions for the model input
+        return modified_audio, encoded.reshape(-1)
+
     def _metadata_for_sample(
         self,
         index,
@@ -195,8 +253,7 @@ class SyntheticTrainingDataGenerator:
         frequency,
         pitch_shifted_frequency,
         amplitude,
-        action,
-        parameter,
+        actions,
         is_chord=False,
         seed=None,
     ):
@@ -206,8 +263,12 @@ class SyntheticTrainingDataGenerator:
             'frequency': frequency,
             'pitch_shifted_frequency': pitch_shifted_frequency,
             'amplitude': amplitude,
-            'action': action,
-            'parameter': parameter,
+            'action': ' -> '.join(action for action, _ in actions) or 'no_action',
+            'parameter': [parameter for _, parameter in actions],
+            'actions': [
+                {'action': action, 'parameter': parameter} for action, parameter in actions
+            ],
+            'num_actions': len(actions),
             'is_chord': is_chord,
             'sample_rate': self.config.sample_rate,
             'duration': self.config.duration,
@@ -232,47 +293,54 @@ class SyntheticTrainingDataGenerator:
             for entry in metadata:
                 f.write(json.dumps(entry) + "\n")
 
-    def generate_training_data(self, seed=42, pitch_only=False):
+    def generate_training_data(self, seed=42):
         input_spectrograms = []
         output_spectrograms = []
         action_vectors = []
-        metadata = []  # To store metadata about the generated samples (e.g., waveform type, frequency, amplitude, action applied)
+        metadata = []
         index = 0
 
         rng = np.random.default_rng(seed)
 
+        scenarios = [(None, 0, 50)] # Generate 50 samples with no actions (identity)
+
+        # Generate scenarios for each required action type with varying numbers of actions
+        for required_action in ACTION_TYPES:
+            sample_count = 100 if required_action in ('pitch_change', 'high_pass') else 50
+            scenarios.extend(
+                (required_action, num_actions, sample_count) for num_actions in range(1, MAX_ACTIONS + 1)
+            )
+
+        total_expected = 3 * sum(sample_count for _, _, sample_count in scenarios)
+
         for waveform_type in ['sine', 'square', 'sawtooth']:
-            actions = ['pitch_change'] if pitch_only else ['no_action', 'gain', 'pitch_change', 'low_pass', 'high_pass']
-            for action in actions:
-                if pitch_only:
-                    sample_count = 1000  # Generate 1000 samples for each waveform type
-                else:
-                    # Increase proportion of high pass and pitch change samples as these are harder to learn and have worst performance
-                    sample_count = 1000 if action == 'pitch_change' or action == 'high_pass' else 500
-
-                for _ in range(sample_count):  # Generate 1000 samples for each waveform type
-                    amplitude = rng.uniform(0.1, 1.0)  # Random amplitude between 0.1 and 1.0
-
-                    if pitch_only:
-                        # Choose a random action and parameter for the audio transformation
-                        action = 'pitch_change'  # For this specific script, we are only applying pitch change
-                        parameter = int(rng.integers(-12, 13))  # Pitch change in semitone
-                    else:
-                        parameter = self._sample_parameter(rng, action)
-
-                    frequency = self.waveform_synthesizer.sample_frequency_for_action(rng, action, parameter)
-
-                    audio = self.waveform_synthesizer.generate_waveform(waveform_type, frequency, amplitude)
-
-                    # Generate a frequency for the chord based on the action and parameter
-                    chord_frequency = self.waveform_synthesizer.sample_frequency_for_action(
+            for required_action, num_actions, sample_count in scenarios:
+                for _ in range(sample_count):
+                    # Sample a sequence of actions and their parameters
+                    actions = self._sample_action_sequence(
                         rng,
-                        action,
-                        parameter,
-                        intervals=DEFAULT_CHORD_INTERVALS,
+                        num_actions,
+                        required_action=required_action,
+                    )
+                    amplitude = rng.uniform(0.1, 1.0)
+
+                    frequency = self.waveform_synthesizer.sample_frequency_for_actions(
+                        rng,
+                        actions,
                     )
 
-                    # Generate a set of chords for the given waveform type and frequency
+                    # Create the original audio waveform and a chord based on the sampled frequency and amplitude
+                    audio = self.waveform_synthesizer.generate_waveform(
+                        waveform_type,
+                        frequency,
+                        amplitude,
+                    )
+
+                    chord_frequency = self.waveform_synthesizer.sample_frequency_for_actions(
+                        rng,
+                        actions,
+                        intervals=DEFAULT_CHORD_INTERVALS,
+                    )
                     chord = self.waveform_synthesizer.generate_chords(
                         waveform_type,
                         chord_frequency,
@@ -280,34 +348,36 @@ class SyntheticTrainingDataGenerator:
                         intervals=DEFAULT_CHORD_INTERVALS,
                     )
 
-                    spectogram = self.spectrogram_transformer.audio_to_cqt(audio)
+                    # Convert the original audio and chord to their corresponding spectrograms
+                    spectrogram = self.spectrogram_transformer.audio_to_cqt(audio)
                     chord_spectrogram = self.spectrogram_transformer.audio_to_cqt(chord)
 
-                    # Apply the action to the audio and get the action vector and the modified audio spectrogram
-                    pitch_shifted_frequency = None
-                    pitch_shifted_chord_frequency = None
-                    if action == 'pitch_change':
-                        pitch_factor = 2 ** (parameter / 12)
-                        pitch_shifted_frequency = frequency * pitch_factor
-                        pitch_shifted_chord_frequency = chord_frequency * pitch_factor
+                    pitch_factor = np.prod([
+                        2 ** (parameter / 12)
+                        for action, parameter in actions
+                        if action == 'pitch_change'
+                    ])
+                    pitch_shifted_frequency = frequency * pitch_factor
+                    pitch_shifted_chord_frequency = chord_frequency * pitch_factor
 
-                    modified_audio, action_vector = self.action_processor.apply_action(audio, action, parameter)
-                    modified_chord_audio, _ = self.action_processor.apply_action(chord, action, parameter)
+                    # Apply the action sequence to both the single waveform and the chord, obtaining the modified audio and the corresponding action vector
+                    modified_audio, action_vector = self._apply_action_sequence(audio, actions)
+                    modified_chord_audio, _ = self._apply_action_sequence(chord, actions)
 
                     modified_spectrogram = self.spectrogram_transformer.audio_to_cqt(modified_audio)
-                    modified_chord_spectrogram = self.spectrogram_transformer.audio_to_cqt(modified_chord_audio)
+                    modified_chord_spectrogram = self.spectrogram_transformer.audio_to_cqt(
+                        modified_chord_audio
+                    )
 
-                    # Append the input spectrogram, output spectrogram, action vector, and metadata to the respective lists
-                    input_spectrograms.append(spectogram)
+                    # Append the training samples and metadata for both the single waveform and the chord
+                    input_spectrograms.append(spectrogram)
                     output_spectrograms.append(modified_spectrogram)
                     action_vectors.append(action_vector)
 
-                    # Do the same for the chord spectrograms
                     input_spectrograms.append(chord_spectrogram)
                     output_spectrograms.append(modified_chord_spectrogram)
                     action_vectors.append(action_vector)
 
-                    # Append metadata for both the single waveform and the chord
                     metadata.append(
                         self._metadata_for_sample(
                             index * 2,
@@ -315,8 +385,7 @@ class SyntheticTrainingDataGenerator:
                             frequency,
                             pitch_shifted_frequency,
                             amplitude,
-                            action,
-                            parameter,
+                            actions,
                             is_chord=False,
                             seed=seed,
                         )
@@ -329,8 +398,7 @@ class SyntheticTrainingDataGenerator:
                             chord_frequency,
                             pitch_shifted_chord_frequency,
                             amplitude,
-                            action,
-                            parameter,
+                            actions,
                             is_chord=True,
                             seed=seed,
                         )
@@ -338,13 +406,17 @@ class SyntheticTrainingDataGenerator:
 
                     index += 1
 
-                    total_expected = 3 * 1000 if pitch_only else 3 * 3500
                     print(f"Data generation progress: {((index / total_expected) * 100):.2f}%")
 
         # Convert lists to numpy arrays
         input_spectrograms = np.array(input_spectrograms)
         output_spectrograms = np.array(output_spectrograms)
-        action_vectors = np.array(action_vectors)
+        action_vectors = np.asarray(action_vectors, dtype=np.float32)
+        if action_vectors.shape[1:] != (ACTION_VECTOR_SIZE,):
+            raise RuntimeError(
+                f"Expected action vectors with shape (N, {ACTION_VECTOR_SIZE}), "
+                f"got {action_vectors.shape}."
+            )
 
         print(f"\nGenerated {len(input_spectrograms)} samples. Splitting into train/val/test sets...")
 
@@ -362,10 +434,9 @@ class SyntheticTrainingDataGenerator:
         # Save the datasets and metadata to disk using np.savez
         print(f"Saving datasets to {output_dir}...")
 
-        suffix = "_pitch_only" if pitch_only else ""
-        self._write_split(output_dir, f"train{suffix}", train_inputs, train_outputs, train_actions, train_metadata)
-        self._write_split(output_dir, f"val{suffix}", val_inputs, val_outputs, val_actions, val_metadata)
-        self._write_split(output_dir, f"test{suffix}", test_inputs, test_outputs, test_actions, test_metadata)
+        self._write_split(output_dir, "train", train_inputs, train_outputs, train_actions, train_metadata)
+        self._write_split(output_dir, "val", val_inputs, val_outputs, val_actions, val_metadata)
+        self._write_split(output_dir, "test", test_inputs, test_outputs, test_actions, test_metadata)
 
         print(f"Datasets saved successfully in {output_dir}.")
         print(f"Metadata saved successfully in {output_dir}.")
@@ -404,5 +475,5 @@ def sample_frequency_for_action(rng, action, parameter, intervals=None):
     return DEFAULT_WAVEFORM_SYNTHESIZER.sample_frequency_for_action(rng, action, parameter, intervals)
 
 
-def generate_training_data(seed=42, pitch_only=False):
-    return DEFAULT_SYNTHETIC_DATA_GENERATOR.generate_training_data(seed=seed, pitch_only=pitch_only)
+def generate_training_data(seed=42):
+    return DEFAULT_SYNTHETIC_DATA_GENERATOR.generate_training_data(seed=seed)
