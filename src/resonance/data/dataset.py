@@ -5,6 +5,16 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from resonance.actions import AudioActionProcessor
+from resonance.config import (
+    ACTION_DIMENSIONS,
+    ACTION_VECTOR_SIZE,
+    MAX_ACTIONS,
+    DEFAULT_CONFIG,
+)
+from resonance.data.synthetic import WaveformSynthesizer
+from resonance.features.cq_nsgt import CQNSGTVectorCodec
+
 
 class SyntheticSpectrogramDataset(Dataset):
     def __init__(self, npz_path, mean, std, device=None):
@@ -51,4 +61,94 @@ class SyntheticSpectrogramDataset(Dataset):
             "target_delta": self.target_deltas[index],
             "target": self.targets[index],
             "action_vector": self.action_vectors[index],
+        }
+
+
+class SyntheticCQNSGTDataset(Dataset):
+    def __init__(self, metadata_path, config=DEFAULT_CONFIG):
+        metadata_path = Path(metadata_path)
+        self.config = config
+
+        # Load the instructions required to recreate every synthetic example
+        with metadata_path.open() as f:
+            self.metadata = [json.loads(line) for line in f]
+
+        # Stop old metadata being used with a different audio configuration
+        if self.metadata:
+            metadata_config = self.metadata[0]
+            expected_settings = {
+                'sample_rate': config.sample_rate,
+                'duration': config.duration,
+                'bins_per_octave': config.bins_per_octave,
+                'fmin': config.fmin,
+            }
+            for name, expected_value in expected_settings.items():
+                if metadata_config.get(name) != expected_value:
+                    raise ValueError(
+                        f'CQ-NSGT metadata {name} does not match the '
+                        f'current config: {metadata_config.get(name)} != '
+                        f'{expected_value}.'
+                    )
+
+        self.action_processor = AudioActionProcessor(config)
+        self.waveform_synthesizer = WaveformSynthesizer(config)
+        self.codec = CQNSGTVectorCodec(config=config)
+
+    def _generate_input_audio(self, metadata):
+        # Recreate either the original waveform or the original three-note chord
+        generate_audio = (
+            self.waveform_synthesizer.generate_chords
+            if metadata.get('is_chord', False)
+            else self.waveform_synthesizer.generate_waveform
+        )
+        return generate_audio(
+            metadata['waveform_type'],
+            metadata['frequency'],
+            metadata['amplitude'],
+        )
+
+    def _apply_actions(self, audio, metadata):
+        target_audio = audio
+        encoded_actions = np.zeros(
+            (MAX_ACTIONS, ACTION_DIMENSIONS),
+            dtype=np.float32,
+        )
+
+        # Apply every action in order and place its encoding in the same slot
+        for slot, action in enumerate(metadata.get('actions', [])):
+            target_audio, action_vector = self.action_processor.apply_action(
+                target_audio,
+                action['action'],
+                action['parameter'],
+            )
+            encoded_actions[slot] = action_vector
+
+        action_vector = encoded_actions.reshape(ACTION_VECTOR_SIZE)
+        return target_audio, torch.from_numpy(action_vector)
+
+    @staticmethod
+    def _remove_codec_batch(vector_blocks):
+        # The codec analyses one item as a batch of one. Remove that dimension
+        # so PyTorch's DataLoader can add the real training batch dimension.
+        return [vectors.squeeze(0) for vectors in vector_blocks]
+
+    def __len__(self):
+        return len(self.metadata)
+
+    def __getitem__(self, index):
+        metadata = self.metadata[index]
+        input_audio = self._generate_input_audio(metadata)
+        target_audio, action_vector = self._apply_actions(input_audio, metadata)
+
+        # Convert both audio states into matching CQ-NSGT vector block lists
+        input_blocks = self._remove_codec_batch(
+            self.codec.audio_to_vectors(input_audio)
+        )
+        target_blocks = self._remove_codec_batch(
+            self.codec.audio_to_vectors(target_audio)
+        )
+        return {
+            'input': input_blocks,
+            'target': target_blocks,
+            'action_vector': action_vector,
         }

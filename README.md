@@ -110,6 +110,51 @@ Evaluate the full-action model:
 .venv/bin/python experiments/test.py
 ```
 
+Precompute the CQ-NSGT vector shards before CQ-NSGT training:
+
+```bash
+.venv/bin/python experiments/precompute_cq_nsgt_vectors.py
+```
+
+The command is resumable and writes a versioned cache under
+`data/synthetic/cq_nsgt_v001/vector_cache_v1/`. To rebuild a stale cache, pass
+`--overwrite`. Then train from the cached vectors:
+
+```bash
+.venv/bin/python experiments/train_cq_nsgt.py
+```
+
+The CQ-NSGT trainer defaults to batch size 2 and two data-loader workers. Both
+can be changed without editing the script, for example:
+
+```bash
+.venv/bin/python experiments/train_cq_nsgt.py --batch-size 4 --num-workers 2
+```
+
+The model caches the fixed masks and interpolation coordinates for each block
+layout. This avoids rebuilding them on the GPU every batch and keeps the same
+model parameters, predictions, and checkpoint format. Existing vector caches
+and checkpoints remain usable.
+
+Measure training and validation throughput before starting a long run:
+
+```bash
+.venv/bin/python experiments/benchmark_cq_nsgt.py --batch-sizes 2 4 8 --compare-uncached-layouts
+```
+
+The benchmark uses disposable model copies and writes timings to
+`build/cq_nsgt_benchmark.json`. It does not save or replace trained checkpoints.
+It includes cached-data loading and device transfers, excludes warmup, and
+projects the cost of 30 epochs plus final testing. Sustained runs may take
+longer due to thermal changes, checkpoint saves, or other applications.
+Larger batches perform fewer optimizer updates per epoch, so compare validation
+and reconstructed audio quality before adopting them for the final model.
+
+The transition model already predicts a full-sized residual and adds it to its
+input. Storing that residual in place of the target does not reduce the number
+of coefficients or the cost of running the model. A smaller learned state would
+be a separate experiment and would need reconstruction and rollout checks.
+
 ## Next Directions
 
 - Add formal automated tests.

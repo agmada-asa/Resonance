@@ -24,6 +24,7 @@ class AudioConfig:
 @dataclass(frozen=True)
 class ProjectPaths:
     data_dir: Path = ROOT / "data/synthetic/v001"
+    cq_nsgt_data_dir: Path = ROOT / "data/synthetic/cq_nsgt_v001"
     build_dir: Path = ROOT / "build"
 
 
