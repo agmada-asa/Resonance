@@ -443,8 +443,147 @@ class SyntheticTrainingDataGenerator:
         print(f"Data generation completed. Total samples generated: {len(input_spectrograms)}")
 
 
+class SyntheticCQNSGTDataGenerator(SyntheticTrainingDataGenerator):
+    def _write_metadata_split(self, output_dir, name, metadata):
+        # CQ-NSGT vectors are generated when the dataset is read, so only the
+        # information required to recreate each audio example is stored here
+        metadata_path = output_dir / f'metadata_{name}.jsonl'
+        with metadata_path.open('w') as f:
+            for entry in metadata:
+                f.write(json.dumps(entry) + '\n')
+
+    def generate_training_data(self, seed=42):
+        metadata = []
+        index = 0
+        rng = np.random.default_rng(seed)
+
+        # Keep the same scenario balance as the current spectrogram dataset
+        scenarios = [(None, 0, 50)]
+        for required_action in ACTION_TYPES:
+            sample_count = 100 if required_action in ('pitch_change', 'high_pass') else 50
+            scenarios.extend(
+                (required_action, num_actions, sample_count)
+                for num_actions in range(1, MAX_ACTIONS + 1)
+            )
+
+        total_expected = 3 * sum(
+            sample_count for _, _, sample_count in scenarios
+        )
+
+        for waveform_type in ['sine', 'square', 'sawtooth']:
+            for required_action, num_actions, sample_count in scenarios:
+                for _ in range(sample_count):
+                    # Sample the action sequence and source amplitude
+                    actions = self._sample_action_sequence(
+                        rng,
+                        num_actions,
+                        required_action=required_action,
+                    )
+                    amplitude = rng.uniform(0.1, 1.0)
+
+                    # Sample valid source frequencies for a waveform and chord
+                    frequency = self.waveform_synthesizer.sample_frequency_for_actions(
+                        rng,
+                        actions,
+                    )
+                    chord_frequency = self.waveform_synthesizer.sample_frequency_for_actions(
+                        rng,
+                        actions,
+                        intervals=DEFAULT_CHORD_INTERVALS,
+                    )
+
+                    # Record the final pitch for evaluation and inspection
+                    pitch_factor = np.prod([
+                        2 ** (parameter / 12)
+                        for action, parameter in actions
+                        if action == 'pitch_change'
+                    ])
+
+                    # Store one waveform and one chord example for this scenario
+                    metadata.append(
+                        self._metadata_for_sample(
+                            index * 2,
+                            waveform_type,
+                            frequency,
+                            frequency * pitch_factor,
+                            amplitude,
+                            actions,
+                            is_chord=False,
+                            seed=seed,
+                        )
+                    )
+                    metadata.append(
+                        self._metadata_for_sample(
+                            index * 2 + 1,
+                            waveform_type,
+                            chord_frequency,
+                            chord_frequency * pitch_factor,
+                            amplitude,
+                            actions,
+                            is_chord=True,
+                            seed=seed,
+                        )
+                    )
+
+                    index += 1
+                    if index % 100 == 0 or index == total_expected:
+                        progress = (index / total_expected) * 100
+                        print(f'CQ-NSGT data generation progress: {progress:.2f}%')
+
+        print(
+            f'\nGenerated metadata for {len(metadata)} samples. '
+            'Splitting into train/val/test sets...'
+        )
+
+        # Split metadata into the same 80/10/10 proportions as the old dataset
+        train, other = train_test_split(
+            metadata,
+            test_size=0.2,
+            random_state=seed,
+        )
+        val, test = train_test_split(
+            other,
+            test_size=0.5,
+            random_state=seed,
+        )
+
+        output_dir = self.paths.cq_nsgt_data_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        self._write_metadata_split(output_dir, 'train', train)
+        self._write_metadata_split(output_dir, 'val', val)
+        self._write_metadata_split(output_dir, 'test', test)
+
+        # Store the representation settings next to the generated splits
+        with (output_dir / 'dataset.json').open('w') as f:
+            json.dump(
+                {
+                    'representation': 'cq_nsgt_complex_vectors',
+                    'sample_rate': self.config.sample_rate,
+                    'duration': self.config.duration,
+                    'bins_per_octave': self.config.bins_per_octave,
+                    'fmin': self.config.fmin,
+                    'train_samples': len(train),
+                    'val_samples': len(val),
+                    'test_samples': len(test),
+                    'seed': seed,
+                },
+                f,
+                indent=2,
+            )
+
+        print(f'CQ-NSGT metadata saved successfully in {output_dir}.')
+        return {
+            'output_dir': output_dir,
+            'train_samples': len(train),
+            'val_samples': len(val),
+            'test_samples': len(test),
+        }
+
+
 DEFAULT_WAVEFORM_SYNTHESIZER = WaveformSynthesizer()
 DEFAULT_SYNTHETIC_DATA_GENERATOR = SyntheticTrainingDataGenerator()
+DEFAULT_CQ_NSGT_DATA_GENERATOR = SyntheticCQNSGTDataGenerator()
 
 
 def generate_sin_wave(frequency, amplitude=0.5):
@@ -477,3 +616,7 @@ def sample_frequency_for_action(rng, action, parameter, intervals=None):
 
 def generate_training_data(seed=42):
     return DEFAULT_SYNTHETIC_DATA_GENERATOR.generate_training_data(seed=seed)
+
+
+def generate_cq_nsgt_training_data(seed=42):
+    return DEFAULT_CQ_NSGT_DATA_GENERATOR.generate_training_data(seed=seed)
